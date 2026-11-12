@@ -297,6 +297,8 @@ static void crash_handler(const PlatCrash *x) {
         rt_logf("  not on a guest thread\n");
     }
     kern_free_cores_note();
+    void (*graphics_note)(void) = __atomic_load_n(&rt_graphics_diagnostic, __ATOMIC_ACQUIRE);
+    if (graphics_note) graphics_note();
     rtss_limit_restore();   // after the report: RivaTuner Statistics Server's profile as it was
     fflush(stderr);
     prof_sampler_write();   // NX2NAVI_PROFILE: what was sampled until the crash (it gives up after 2 s if the sampler hangs)

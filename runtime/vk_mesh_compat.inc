@@ -19,6 +19,7 @@ static void mesh_compat_release(void *argument) {
     if (b->mapped[16] && plat_inc32(&overflow_logs) <= 8)
         rt_log("vk compat: indirect mesh draw requested %u task groups; limit %u, entire draw omitted",
                               b->mapped[16], MC_INDIRECT_LIMIT);
+    vk_diag_note("mesh-completed", b->fence, VK_NULL_HANDLE, (uintptr_t)b->buffer, b->bytes, b->mapped[4], b->mapped[5]);
     vmaDestroyBuffer(vk_ctx()->vma, b->buffer, b->allocation);
     free(b);
 }
@@ -41,6 +42,7 @@ static int mesh_compat_buffer(VkExec *ex, uint64_t bytes) {
     b->mapped = info.pMappedData, b->bytes = bytes, b->fence = ex->fence;
     b->mapped[16] = 0; // GPU writes overflow status; completion reads it only after this fence.
     mc_buffer = *b;
+    vk_diag_note("mesh-allocated", ex->fence, ex->cb, (uintptr_t)b->buffer, bytes, 0, 0);
     vk_completion_add(ex->fence, mesh_compat_release, b);
     ex->compat_mesh_buffer = (VkDescriptorBufferInfo){b->buffer, 0, bytes};
     return 1;
@@ -60,7 +62,10 @@ static int mesh_compat_dispatch(VkExec *ex, const GfxShader *cs, int stage, uint
     twin_dispatch = 1;
     bind_resources(ex, &local);
     twin_dispatch = 0;
+    vk_diag_note("mesh-dispatch", ex->fence, ex->cb, vk_diag_shader(cs), groups, stage, 0);
+    VkPassMark *mark = dispatch_mark(ex, cs, groups, 1, 1);
     vkCmdDispatch(ex->cb, groups, 1, 1);
+    vk_pass_mark_end(ex->cb, mark);
     ex->recorded++;
     return 1;
 }
@@ -80,7 +85,9 @@ static int mesh_compat_generate(VkExec *ex, const GfxShader *mesh, const GfxShad
     uint64_t budget = vk_ctx()->props.limits.maxStorageBufferRange;
     if (budget > MC_TARGET_BYTES) budget = MC_TARGET_BYTES;
     uint32_t capacity = budget > 128 && per_task ? (uint32_t)((budget - 128) / per_task) : 0;
-    if (capacity > 8) capacity = 8;
+    static int larger = -1;
+    if (larger < 0) larger = !strcmp(cfg_value("NX2NAVI_COMPAT_MESH_BATCH"), "auto");
+    if (!larger && capacity > 8) capacity = 8;
     uint32_t groups_limit = vk_ctx()->props.limits.maxComputeWorkGroupCount[0];
     if (capacity > groups_limit / children) capacity = groups_limit / children;
     if (!capacity) return warn_once(W_MESH, "one compatibility task group exceeds the geometry buffer budget"), 0;
@@ -92,17 +99,26 @@ static int mesh_compat_generate(VkExec *ex, const GfxShader *mesh, const GfxShad
     uint32_t vertices_at = (payload_at + capacity * (m->payload + 1) + 3) & ~3u;
     uint64_t bytes = ((uint64_t)vertices_at + (uint64_t)capacity * children * m->maxp * m->ipp * m->stride) * 4;
     if (!mesh_compat_buffer(ex, bytes)) return warn_once(W_MESH, "compatibility geometry buffer allocation failed"), 0;
+    vk_diag_note("mesh-batch", ex->fence, ex->cb, ex->prog ? ex->prog->serial : 0, mc_draw.base, batch, capacity);
     vk_contact_flush(ex);
     vk_exec_barrier(ex); // previous draws have finished reading this buffer before its next batch rewrites it
     uint32_t header[16] = {0, 1, 0, 0, mc_draw.count, mc_draw.base, batch, children, m->payload,
         m->maxp, m->ipp, m->stride, vertices_at, payload_at, mc_draw.first,
         mc_draw.indirect ? MC_INDIRECT_LIMIT : mc_draw.count};
     vkCmdUpdateBuffer(ex->cb, mc_buffer.buffer, 0, sizeof header, header);
+    vk_diag_note("mesh-fill", ex->fence, ex->cb, (uintptr_t)mc_buffer.buffer, 4ull * payload_at,
+                 4ull * capacity * (m->payload + 1), mc_buffer.bytes);
     vkCmdFillBuffer(ex->cb, mc_buffer.buffer, 4ull * payload_at, 4ull * capacity * (m->payload + 1), 0);
+    // The barrier below skips redundant barriers using recorded. Count these transfer writes or it can mistake
+    // the earlier barrier for a current one, leaving stale counts and payloads visible to the compute shaders.
+    ex->recorded += 2;
     if (mc_draw.indirect) {
         // Keep the actual count and first group on the GPU; no readback or CPU wait.
         VkBufferCopy copies[2] = {{mc_draw.arguments.offset, 16, 4}, {mc_draw.arguments.offset + 4, 56, 4}};
         vkCmdCopyBuffer(ex->cb, mc_draw.arguments.buffer, mc_buffer.buffer, 2, copies);
+        ex->recorded++;
+        vk_diag_note("mesh-arguments", ex->fence, ex->cb, (uintptr_t)mc_draw.arguments.buffer,
+                     mc_draw.arguments.offset, (uintptr_t)mc_buffer.buffer, 0);
     }
     vk_exec_barrier(ex);
     if (t) {

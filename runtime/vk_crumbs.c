@@ -16,6 +16,7 @@
 #include "cfg.h"
 #include "host.h"
 #include "vk.h"
+#include "vk_diag.h"
 
 static PFN_vkCmdWriteBufferMarkerAMD write_marker;
 static VkBuffer buf;
@@ -107,7 +108,7 @@ static void pass_marks_init(VkCtx *c) {
     pm_amd = !off && write_marker && words;
     // Timestamp profiling needs pass labels, but no vendor breadcrumb extension.
     const char *timing = cfg_get("NX2NAVI_GPU_PASSES");
-    int timestamps = timing && *timing && strcmp(timing, "0");
+    int timestamps = timing && *timing ? strcmp(timing, "0") != 0 : vk_diag_timing();
     vk_pass_marks_on = pm_amd || set_checkpoint || timestamps;
     if (timestamps && !pm_amd && !set_checkpoint)
         rt_log("vk: pass labels on for timestamp profiling; vendor breadcrumbs unavailable");
@@ -407,7 +408,7 @@ void vk_gpu_passes_frame(uint64_t frame) {
     if (!gp_state) {
         gp_state = -1;
         const char *e = cfg_get("NX2NAVI_GPU_PASSES");
-        if (!e || !*e || !strcmp(e, "0") || !c) return;
+        if (!c || (e && *e ? !strcmp(e, "0") : !vk_diag_timing())) return;
         VkQueryPoolCreateInfo qi = {.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO, .queryType = VK_QUERY_TYPE_TIMESTAMP,
                                     .queryCount = GP_SLOTS * 2};
         if (!vk_pass_marks_on || vkCreateQueryPool(c->device, &qi, NULL, &gp_pool) != VK_SUCCESS) {

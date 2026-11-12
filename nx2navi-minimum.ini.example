@@ -5,6 +5,11 @@
 [compatibility]
 compat_bda32 = 1
 compat_mesh = 1
+compat_mesh_batch = auto
+
+[diagnostics]
+# Retain a bounded crash history and measure expensive GPU passes. Adds some profiling overhead.
+graphics_diag = timed
 
 [display]
 game_aspect = 16:9

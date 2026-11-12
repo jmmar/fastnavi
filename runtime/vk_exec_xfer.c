@@ -42,6 +42,7 @@
 #include "tex.h"
 #include "vk.h"
 #include "vk_exec.h"
+#include "vk_diag.h"
 
 enum { W_FORMAT, W_REGION, W_BUFFER, W_OVERLAP, W_COPY, W_CLEAR, W_QUERY, W_COUNT };
 
@@ -893,6 +894,7 @@ static void clear_buf(VkExec *ex, const p_clear_buf *p) {
         if (!n) break;
         if (!started) vk_exec_pass_end(ex), vk_exec_barrier(ex), started = 1;
         VK_MEM_PICK(d);
+        vk_diag_note("guest-fill", ex->fence, ex->cb, (uintptr_t)d.buffer, d.offset, n, d.offset + d.avail);
         vkCmdFillBuffer(ex->cb, d.buffer, d.offset, n, p->value);
         // A VRAM mirror's guest copy is filled too, at once: atomics through the device address table count in both
         // copies (translator patch 0036), and a counter reset here must start from the same value in both.

@@ -111,3 +111,10 @@ fault and performance is unknown.
 the optional Intel compatibility layers, low textures, and the movie CPU filters
 off. Merge keys into the existing settings file; do not replace input bindings
 or save data. No assets need to be extracted again for these runtime changes.
+
+The following diagnostics pass fixes transfer-command accounting before compatibility
+compute barriers and adds bounded crash history, workload summaries, optional GPU
+timing and optional larger mesh batches. See [Graphics diagnostics](graphics-diagnostics.md)
+for the settings, the confirmed ordering defect, and the limits of resizing fixed-size
+effects. These changes require a rebuilt runtime; previous crash results do not
+validate the new synchronization path.

@@ -16,6 +16,8 @@
 #include "cfg.h"
 #include "host.h"
 #include "vk.h"
+#include "vk_diag.h"
+#include "vk_exec.h"
 #include "platform/platform.h"
 
 #define RING_WORDS (1u << 21)   // 16 MiB: a part of a submission is ~1-2 MiB of packets in the town
@@ -351,9 +353,14 @@ FIXED(DrawIndexedIndirect, (VkCommandBuffer cb, VkBuffer b, VkDeviceSize o, uint
 FIXED(EndQuery, (VkCommandBuffer cb, VkQueryPool p, uint32_t q), (cb, p, q), VkQueryPool p; uint32_t q)
 #define PACK_EndRendering (void)a
 FIXED(EndRendering, (VkCommandBuffer cb), (cb), int unused)
-#define PACK_FillBuffer *a = (A_FillBuffer){b, o, n, v}
-FIXED(FillBuffer, (VkCommandBuffer cb, VkBuffer b, VkDeviceSize o, VkDeviceSize n, uint32_t v), (cb, b, o, n, v),
-      VkBuffer b; VkDeviceSize o, n; uint32_t v)
+typedef struct { VkBuffer b; VkDeviceSize o, n; uint32_t v; } A_FillBuffer;
+void rc_vkCmdFillBuffer(VkCommandBuffer cb, VkBuffer b, VkDeviceSize o, VkDeviceSize n, uint32_t v) {
+    vk_diag_note("fill-issued", vk_exec_recording_fence(), cb, (uintptr_t)b, o, n, v);
+    if (!OWNED(cb)) { vkCmdFillBuffer(cb, b, o, n, v); return; }
+    A_FillBuffer *a = put(R_FillBuffer, sizeof *a);
+    *a = (A_FillBuffer){b, o, n, v};
+    pub();
+}
 #define PACK_ResetQueryPool *a = (A_ResetQueryPool){p, f, n}
 FIXED(ResetQueryPool, (VkCommandBuffer cb, VkQueryPool p, uint32_t f, uint32_t n), (cb, p, f, n), VkQueryPool p;
       uint32_t f, n)
@@ -706,7 +713,12 @@ static void exec_packet(uint32_t op, void *p) {
     F(DrawIndexed, a->n, a->i, a->f, a->v, a->fi)
     F(DrawIndexedIndirect, a->b, a->o, a->n, a->s)
     F(EndQuery, a->p, a->q)
-    F(FillBuffer, a->b, a->o, a->n, a->v)
+    case R_FillBuffer: {
+        A_FillBuffer *a = p;
+        vk_diag_note("fill-driver", __atomic_load_n(&part_fence, __ATOMIC_RELAXED), cb, (uintptr_t)a->b, a->o, a->n, a->v);
+        vkCmdFillBuffer(cb, a->b, a->o, a->n, a->v);
+        break;
+    }
     F(ResetQueryPool, a->p, a->f, a->n)
     F(SetBlendConstants, a->c)
     F(SetCullMode, a->v)

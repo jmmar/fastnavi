@@ -1103,6 +1103,15 @@ static void tab_screen(float scale) {
     opt_group(UI_MENU_MOVIES);
     opt_toggle("NX2NAVI_MOVIE_DEBAND", UI_MENU_MOVIE_DEBAND, UI_MENU_MOVIE_DEBAND_DESC);
     opt_toggle("NX2NAVI_MOVIE_GRAIN", UI_MENU_MOVIE_GRAIN, UI_MENU_MOVIE_GRAIN_DESC);
+    static const char *const diag_values[] = {"auto", "off", "on", "timed"};
+    const char *diag_names[] = {menu_text(UI_MENU_DIAG_AUTO), menu_text(UI_MENU_OFF),
+                                menu_text(UI_MENU_DIAG_HISTORY), menu_text(UI_MENU_DIAG_TIMED)};
+    opt_choice_list("NX2NAVI_GRAPHICS_DIAG", UI_MENU_GRAPHICS_DIAG, diag_values, diag_names, 4, UI_MENU_GRAPHICS_DIAG_DESC);
+    if (cfg_bool("NX2NAVI_COMPAT_MESH")) {
+        static const char *const batch_values[] = {"8", "auto"};
+        const char *batch_names[] = {menu_text(UI_MENU_COMPAT_BATCH_STANDARD), menu_text(UI_MENU_COMPAT_BATCH_LARGE)};
+        opt_choice_list("NX2NAVI_COMPAT_MESH_BATCH", UI_MENU_COMPAT_BATCH, batch_values, batch_names, 2, UI_MENU_COMPAT_BATCH_DESC);
+    }
     opt_end();
 }
 

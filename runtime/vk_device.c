@@ -12,6 +12,7 @@
 #include "cfg.h"
 #include "host.h"
 #include "vk.h"
+#include "vk_diag.h"
 #include "platform/platform.h"
 #include "vk_dlaa.h"
 #include "vk_fg.h"
@@ -445,7 +446,7 @@ static int create_device(void) {
         // Mesh queries for two diagnoses: NX2NAVI_GPU_PASSES (vk_crumbs.c) and the dump's primitive counts
         // (vk_dump.c vk_dump_mesh_begin), which also need pipeline statistics and host query reset.
         const char *gp = cfg_get("NX2NAVI_GPU_PASSES"), *dmp = cfg_get("NX2NAVI_DUMP");
-        int want = (gp && *gp && strcmp(gp, "0")) || (dmp && *dmp);
+        int want = (gp && *gp ? strcmp(gp, "0") != 0 : vk_diag_timing()) || (dmp && *dmp);
         g_vk.has_mesh_queries = want && c->mesh.meshShaderQueries && h->pipelineStatisticsQuery && c->f12.hostQueryReset;
         c->mesh.meshShaderQueries = g_vk.has_mesh_queries ? VK_TRUE : VK_FALSE;
         if (!c->mesh.meshShader || !c->mesh.taskShader) g_vk.has_mesh_shader = 0;
@@ -588,6 +589,7 @@ void vk_device_fault_report(VkResult r) {
     static PlatMutex lock = PLAT_MUTEX_INIT;
     static int done;
     if (r != VK_ERROR_DEVICE_LOST) return;
+    vk_diag_report();
     plat_mutex_lock(&lock);
     if (done) { plat_mutex_unlock(&lock); return; }
     done = 1;

@@ -362,6 +362,12 @@
 # restart for consistent application. Neither setting changes timestamps or lowers the encoded stream dimensions.
 # movie_deband = 1
 # movie_grain = 1
+# Bounded CPU graphics history and workload summaries: auto (on with compatibility layers), off, on, timed.
+# timed also enables the existing GPU pass profiler unless gpu_passes was set explicitly. Read at start.
+# graphics_diag = auto
+# Optional larger compatibility mesh batches within the existing 32 MiB geometry-buffer and GPU group limits.
+# 8 preserves the previous batching. auto can reduce CPU recording work with larger temporary buffers.
+# compat_mesh_batch = 8
 # 3D render scale: the scene's size relative to the game resolution, game (5/6, the game's own 1600x900 at 1080p) or
 # a percentage (25 to 400, at most 4096 pixels a side); above 100 supersamples the scene (anti-aliasing). Read at start.
 # render_scale = game

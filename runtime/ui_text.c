@@ -606,6 +606,19 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_MOVIE_GRAIN_DESC] = "Allows AV1 grain synthesis when the video contains grain. Off removes that optional decoder work. "
                                 "Takes effect when the decoder is recreated; restart to apply consistently.",
     [UI_MENU_MOVIE_SOURCE] = "Movie source",
+    [UI_MENU_GRAPHICS_DIAG] = "Graphics diagnostics",
+    [UI_MENU_GRAPHICS_DIAG_DESC] = "Keeps a small history for crash reports and logs frame/mesh workload summaries. "
+                                  "Auto enables it with compatibility options. GPU timing also measures expensive passes "
+                                  "and can add overhead. Restart to apply.",
+    [UI_MENU_DIAG_AUTO] = "Auto (compatibility)",
+    [UI_MENU_DIAG_HISTORY] = "History and summaries",
+    [UI_MENU_DIAG_TIMED] = "History + GPU timing",
+    [UI_MENU_COMPAT_BATCH] = "Compatibility mesh batching",
+    [UI_MENU_COMPAT_BATCH_DESC] = "Larger batches can reduce CPU overhead while staying within the GPU's limits. "
+                                 "May use a larger temporary geometry buffer, up to 32 MiB. "
+                                 "Standard preserves the previous eight-group limit. Restart to apply.",
+    [UI_MENU_COMPAT_BATCH_STANDARD] = "Standard",
+    [UI_MENU_COMPAT_BATCH_LARGE] = "Larger batches",
     [UI_MENU_CHEATS_REBUILD] = "Rebuild the game now",
     [UI_MENU_CHEATS_REBUILD_DESC] = "Some cheats change the game's code and are not built into it: they are new or "
                                     "edited, or their last rebuild failed or was cancelled. Closes the game; the setup "

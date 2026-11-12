@@ -41,6 +41,8 @@ static uint64_t g_table_bytes, g_functions;
 static struct { uint64_t addr; GuestFn fn; } g_host[HOST_CAP];
 static uint64_t g_nhost;
 
+void (*rt_graphics_diagnostic)(void);
+
 void rt_fatal(const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
@@ -49,6 +51,8 @@ void rt_fatal(const char *fmt, ...) {
     rt_vlogf(fmt, ap);
     rt_log_raw("\n", 1);
     va_end(ap);
+    void (*graphics_note)(void) = __atomic_load_n(&rt_graphics_diagnostic, __ATOMIC_ACQUIRE);
+    if (graphics_note) graphics_note();
     // A failed allocation (malloc, realloc, VirtualAlloc) means the commit limit was reached: this line tells a leak of
     // ours (process private bytes near the limit) from a machine short of page file.
     double proc, used, limit;

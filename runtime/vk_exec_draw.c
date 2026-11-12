@@ -28,6 +28,7 @@
 #define NX2NAVI_TONEMAP_STANDIN 1   // vk_tonemap.c, see untranslated_dispatch_fallback
 #endif
 #include "vk_exec.h"
+#include "vk_diag.h"
 #include "vk_gpa.h"
 #include "platform/platform.h"
 #include "vk_dlaa.h"
@@ -3704,6 +3705,13 @@ static int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int
                (unsigned long long)__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 1, waited / 1e6, why,
                s.feedback ? ", feedback loop" : "", pending ? ", skipped after all" : "", count, ex->pass_w, ex->pass_h,
                tg);
+        if (vk_diag_enabled())
+            rt_log("graphics diag: pipeline wait frame %llu program %llu vertex-key %016llx fragment-key %016llx "
+                   "target %ux%u, CPU wait %.1f ms (not GPU shader time)",
+                   (unsigned long long)__atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED) + 1,
+                   (unsigned long long)(ex->prog ? ex->prog->serial : 0),
+                   (unsigned long long)vk_diag_shader(vs), (unsigned long long)vk_diag_shader(fs),
+                   ex->pass_w, ex->pass_h, waited / 1e6);
     }
     if (pending) return draw_skipped(ex, mesh, SK_PIPE_PENDING);   // a background worker is building it: skipped until it is ready
     if (!p || !info) return draw_skipped(ex, mesh, SK_PIPE_FAILED);
@@ -3743,6 +3751,7 @@ static int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int
     if (vk_dump_armed) vk_dump_draw(ex, &s, p, info, mesh);
     if (vk_hdr_track) vk_hdr_draw(ex, info);
     vk_exec_oq_draw(ex);
+    vk_diag_note("draw-ready", ex->fence, ex->cb, vk_diag_shader(vs), vk_diag_shader(fs), ex->pass_w, ex->pass_h);
     DRS.issued[mesh]++;
     draw_stats_tick();
     return 1;
@@ -4628,6 +4637,7 @@ static void mesh_compat_draw(VkExec *ex, uint32_t count, uint32_t first, const V
     static int on = -1;
     if (on < 0) on = rt_knob("MESH", "1");
     if (!on) return;
+    uint64_t start = vk_diag_enabled() ? plat_now_ns() : 0, batches = 0;
     memset(&mc_draw, 0, sizeof mc_draw);
     mc_draw.active = 1, mc_draw.count = count, mc_draw.first = first, mc_draw.indirect = arguments != NULL;
     if (arguments) mc_draw.arguments = *arguments;
@@ -4638,10 +4648,12 @@ static void mesh_compat_draw(VkExec *ex, uint32_t count, uint32_t first, const V
         vkCmdDrawIndirect(ex->cb, ex->compat_mesh_buffer.buffer, 0, 1, sizeof(VkDrawIndirectCommand));
         ex->recorded++;
         vk_exec_frame.draws++;
+        batches++;
         if (!mc_draw.batch) break; // a shader/pipeline/metadata failure must not spin through empty batches
         mc_draw.base += mc_draw.batch;
     }
     mc_draw.active = 0;
+    if (start) vk_diag_mesh(batches, count, plat_now_ns() - start);
 }
 
 static void op_draw_mesh(VkExec *ex, const p_draw_mesh *d) {
@@ -5238,6 +5250,7 @@ static void op_dispatch(VkExec *ex, const p_dispatch *d) {
     }
     twin_dispatch = 0;
     VkPassMark *m = dispatch_mark(ex, cs, (uint32_t)d->x, (uint32_t)d->y, (uint32_t)d->z);
+    vk_diag_note("dispatch", ex->fence, ex->cb, vk_diag_shader(cs), (uint32_t)d->x, (uint32_t)d->y, (uint32_t)d->z);
     vkCmdDispatch(ex->cb, (uint32_t)d->x, (uint32_t)d->y, (uint32_t)d->z);
     vk_pass_mark_end(ex->cb, m);
     ex->recorded++;
@@ -5287,6 +5300,7 @@ static void op_dispatch_ind(VkExec *ex, const p_dispatch_ind *d) {
         B.c0_valid[2] = 0;   // the range no longer holds B.c0[2]
     }
     VkPassMark *m = dispatch_mark(ex, cs, 0, 0, 0);
+    vk_diag_note("dispatch-indirect", ex->fence, ex->cb, vk_diag_shader(cs), (uintptr_t)ip.buffer, ip.offset, 0);
     vkCmdDispatchIndirect(ex->cb, ip.buffer, ip.offset);
     vk_pass_mark_end(ex->cb, m);
     ex->recorded++;
