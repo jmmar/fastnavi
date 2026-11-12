@@ -3594,6 +3594,9 @@ static int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int
     int compat_mesh = mesh && vk_caps.mesh_compute;
     if (compat_mesh) {
         if (!mesh_compat_generate(ex, vs, ts, &vs, &prim)) return draw_skipped(ex, mesh, SK_SHADER_FAILED);
+        // Geometry generation uses transfer/compute barriers, which end the rendering pass. Its vertex-pulling draw
+        // needs the attachments loaded again before graphics state and the indirect draw are recorded.
+        vk_exec_pass_begin(ex);
         ts = NULL;
         mesh = 0; // the generated stage is a conventional vertex shader; native mesh draws keep their path
     }

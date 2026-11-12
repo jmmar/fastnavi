@@ -95,9 +95,17 @@ be substantially cheaper; total playback speed still depends on decoding and the
 game's render/update loop and requires the player's evaluation.
 
 The same log ends with an access violation inside igvk64.dll after the movie,
-amid newly compiled 427x240 scene draws. That establishes a driver-module fault,
-not its cause. This pass does not claim to fix it. Pipeline/shader waits during
-that transition also differ from the steady-state overlay showing no waits.
+amid newly compiled 427x240 scene draws. The matching executable's link map and
+disassembly place the host return address after vkCmdFillBuffer in rec_main.
+That identifies the command and recorder thread, not the root cause. Inspection
+also found that compatibility mesh generation ended the rendering pass for its
+transfer/compute barriers but did not reopen it before drawing. This pass restores
+the attachments with the existing pass-begin path before the vertex-pulling draw.
+Whether that corrects this driver crash requires the player's evaluation.
+Pipeline/shader waits during the transition also differ from the steady-state
+overlay showing no waits. If a driver fault persists, the existing vk_recorder = 0
+setting provides a separate diagnostic option after restart; its effect on this
+fault and performance is unknown.
 
 `nx2navi-minimum.ini.example` adds a 240p world / 720p HUD starting profile with
 the optional Intel compatibility layers, low textures, and the movie CPU filters
