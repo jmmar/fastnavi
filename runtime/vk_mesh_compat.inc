@@ -20,6 +20,7 @@ static void mesh_compat_release(void *argument) {
         rt_log("vk compat: indirect mesh draw requested %u task groups; limit %u, entire draw omitted",
                               b->mapped[16], MC_INDIRECT_LIMIT);
     vk_diag_note("mesh-completed", b->fence, VK_NULL_HANDLE, (uintptr_t)b->buffer, b->bytes, b->mapped[4], b->mapped[5]);
+    vk_diag_mesh_memory(-(int64_t)b->bytes);
     vmaDestroyBuffer(vk_ctx()->vma, b->buffer, b->allocation);
     free(b);
 }
@@ -42,6 +43,7 @@ static int mesh_compat_buffer(VkExec *ex, uint64_t bytes) {
     b->mapped = info.pMappedData, b->bytes = bytes, b->fence = ex->fence;
     b->mapped[16] = 0; // GPU writes overflow status; completion reads it only after this fence.
     mc_buffer = *b;
+    vk_diag_mesh_memory((int64_t)bytes);
     vk_diag_note("mesh-allocated", ex->fence, ex->cb, (uintptr_t)b->buffer, bytes, 0, 0);
     vk_completion_add(ex->fence, mesh_compat_release, b);
     ex->compat_mesh_buffer = (VkDescriptorBufferInfo){b->buffer, 0, bytes};

@@ -70,3 +70,4 @@ const char *cfg_value(const char *name);
 int cfg_int(const char *name);
 double cfg_double(const char *name);
 int cfg_bool(const char *name);
+int cfg_low_memory(void);   // startup memory profile: standard preserves the existing allocator/cache policies

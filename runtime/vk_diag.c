@@ -16,6 +16,7 @@ typedef struct {
 static Entry history[HISTORY];
 static uint64_t serial, current_frame, dropped;
 static uint64_t mesh_batches, mesh_upper, mesh_ns;
+static uint64_t mesh_live_bytes, mesh_peak_bytes;
 static int mode, reported;
 
 static int diag_mode(void) {
@@ -23,7 +24,7 @@ static int diag_mode(void) {
     if (m) return m;
     const char *s = cfg_value("NX2NAVI_GRAPHICS_DIAG");
     m = !strcmp(s, "timed") ? 3 : (!strcmp(s, "on") || !strcmp(s, "1") ||
-        (!strcmp(s, "auto") && (cfg_bool("NX2NAVI_COMPAT_MESH") || cfg_bool("NX2NAVI_COMPAT_BDA32")))) ? 2 : 1;
+        (!strcmp(s, "auto") && (cfg_bool("NX2NAVI_COMPAT_MESH") || cfg_bool("NX2NAVI_COMPAT_BDA32") || cfg_low_memory()))) ? 2 : 1;
     if (__atomic_compare_exchange_n(&mode, &(int){0}, m, 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
         if (m > 1) {
             __atomic_store_n(&rt_graphics_diagnostic, vk_diag_report, __ATOMIC_RELEASE);
@@ -68,6 +69,13 @@ void vk_diag_mesh(uint64_t batches, uint64_t upper_groups, uint64_t ns) {
     __atomic_add_fetch(&mesh_batches, batches, __ATOMIC_RELAXED);
     __atomic_add_fetch(&mesh_upper, upper_groups, __ATOMIC_RELAXED);
     __atomic_add_fetch(&mesh_ns, ns, __ATOMIC_RELAXED);
+}
+
+void vk_diag_mesh_memory(int64_t bytes) {
+    uint64_t live = bytes >= 0 ? __atomic_add_fetch(&mesh_live_bytes, (uint64_t)bytes, __ATOMIC_RELAXED)
+                               : __atomic_sub_fetch(&mesh_live_bytes, (uint64_t)-bytes, __ATOMIC_RELAXED);
+    uint64_t peak = __atomic_load_n(&mesh_peak_bytes, __ATOMIC_RELAXED);
+    while (live > peak && !__atomic_compare_exchange_n(&mesh_peak_bytes, &peak, live, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {}
 }
 
 void vk_diag_frame(uint64_t frame, uint64_t draws, uint64_t dispatches, uint64_t passes) {
@@ -129,4 +137,9 @@ void vk_diag_report(void) {
            (unsigned long long)__atomic_load_n(&mesh_batches, __ATOMIC_RELAXED),
            (unsigned long long)__atomic_load_n(&mesh_upper, __ATOMIC_RELAXED),
            __atomic_load_n(&mesh_ns, __ATOMIC_RELAXED) / 1e6);
+    rt_log("graphics memory: compatibility geometry live %.1f MiB, peak %.1f MiB; memory profile %s",
+           __atomic_load_n(&mesh_live_bytes, __ATOMIC_RELAXED) / 1048576.0,
+           __atomic_load_n(&mesh_peak_bytes, __ATOMIC_RELAXED) / 1048576.0,
+           cfg_low_memory() ? "low" : "standard");
+    vk_upload_diagnostic();
 }

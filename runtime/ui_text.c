@@ -619,6 +619,13 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                  "Standard preserves the previous eight-group limit. Restart to apply.",
     [UI_MENU_COMPAT_BATCH_STANDARD] = "Standard",
     [UI_MENU_COMPAT_BATCH_LARGE] = "Larger batches",
+    [UI_MENU_PERF_DIAG_GROUP] = "Performance and diagnostics",
+    [UI_MENU_MEMORY_PROFILE] = "Memory profile",
+    [UI_MENU_MEMORY_PROFILE_DESC] = "Low memory keeps smaller upload and released-texture caches, uses smaller allocation blocks, "
+                                   "and submits large upload batches earlier. May increase allocation or upload overhead. "
+                                   "Standard restores the previous policies. Explicit memory overrides still apply. Restart required.",
+    [UI_MENU_MEMORY_STANDARD] = "Standard",
+    [UI_MENU_MEMORY_LOW] = "Low memory",
     [UI_MENU_CHEATS_REBUILD] = "Rebuild the game now",
     [UI_MENU_CHEATS_REBUILD_DESC] = "Some cheats change the game's code and are not built into it: they are new or "
                                     "edited, or their last rebuild failed or was cancelled. Closes the game; the setup "

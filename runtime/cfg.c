@@ -69,7 +69,7 @@ static const char *const known[] = {
     "BIND_REUSE", "DYN_DELTA", "STG_ARENA", "SUBMIT_BATCH", "ASTC_GPU_DESWIZZLE", "ASTC_SCRATCH_KEEP", "ASTC_ARENA",
     "TEXUP_LOG_MS", "DYN_RES", "DYN_RES_TARGET", "DYN_RES_STEP", "TEXTURE_DETAIL",
     "RECORDER_CORE", "RECORDER_PRIO", "REPLAY_TIME", "LOCK_TIME", "POOL_CREATE_BUDGET", "POOL_CREATE_MS", "POOL_LOAD_BACKLOG", "POOL_LOAD_MS",
-    "VMA_BLOCK_MB", "ASTC_BC_PROBE", "SYNC_WAKE_ALL", "LOG_ASYNC",
+    "VMA_BLOCK_MB", "ASTC_BC_PROBE", "SYNC_WAKE_ALL", "LOG_ASYNC", "MEMORY_PROFILE",
 };
 
 // The nx2navi.ini section a key cfg_set may write goes to when the file lacks it (nx2navi.ini.example's sections).
@@ -83,6 +83,7 @@ static const struct { const char *key, *section; } sections[] = {
     {"TEXTURE_DETAIL", "display"}, {"WORLD_RES", "display"}, {"COMPAT_BDA32", "compatibility"}, {"COMPAT_MESH", "compatibility"},
     {"MOVIE_DEBAND", "movies"}, {"MOVIE_GRAIN", "movies"},
     {"GRAPHICS_DIAG", "diagnostics"}, {"COMPAT_MESH_BATCH", "compatibility"},
+    {"MEMORY_PROFILE", "performance"},
     {"COLOR_PRESET", "display"},
     {"COLOR_BRIGHTNESS", "display"}, {"COLOR_CONTRAST", "display"}, {"COLOR_SATURATION", "display"},
     {"COLOR_GAMMA", "display"}, {"HDR", "display"}, {"HDR_LIVE", "display"}, {"HDR_PEAK_NITS", "display"}, {"HDR_GAME_NITS", "display"},
@@ -168,6 +169,7 @@ static const CfgMeta metas[] = {
     {"COMPAT_MESH", "0", "0|1", RESTART},    // optional task/mesh compute-to-geometry layer
     {"GRAPHICS_DIAG", "auto", "auto|off|on|timed", RESTART},   // bounded CPU history; auto on with a compatibility layer
     {"COMPAT_MESH_BATCH", "8", "8|auto", RESTART},   // auto uses the existing buffer/group limits instead of the eight-group cap
+    {"MEMORY_PROFILE", "standard", "standard|low", RESTART},   // optional smaller allocator/cache footprints
     {"ASPECT", "fit", "fit|stretch", LIVE}, {"FOV", "100", "70..140", LIVE},
     {"ANISO", "game", "game|2|4|8|16", LIVE},   // vk_texture.c sampler_features, vk_sampler_aniso_live
     {"TEXTURE_DETAIL", "auto", "auto|full|reduced|low", RESTART},   // vk_texture.c "texture detail", read at the first texture
@@ -635,6 +637,16 @@ int cfg_int(const char *name) {
 }
 
 int cfg_bool(const char *name) { return strcmp(cfg_value(name), "0") != 0; }
+
+int cfg_low_memory(void) {
+    static int known;   // 0 unknown, 1 standard, 2 low; values stay fixed until restart
+    int m = __atomic_load_n(&known, __ATOMIC_ACQUIRE);
+    if (!m) {
+        m = !strcmp(cfg_value("NX2NAVI_MEMORY_PROFILE"), "low") ? 2 : 1;
+        __atomic_store_n(&known, m, __ATOMIC_RELEASE);
+    }
+    return m == 2;
+}
 
 // ---- the restart-only settings' values at start (cfg_init), which the running game keeps using whatever the menu sets
 // later: cfg_pending compares against them, so the menu says "after restart" only while a restart would change

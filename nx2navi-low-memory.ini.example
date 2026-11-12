@@ -1,0 +1,13 @@
+# Additional low-memory options. Merge into the existing nx2navi.ini beside ocarina.exe.
+# Requires the new runtime; restart after changing memory_profile. Preserve input and save preferences.
+
+[performance]
+memory_profile = low
+
+[diagnostics]
+graphics_diag = timed
+
+# Standard restores the original staging/cache policies for stronger PCs:
+# memory_profile = standard
+# Explicit vma_block_mb, vram_headroom, tex_released_mb and tex_proc_commit_mb values retain precedence.
+# The profile does not reduce the HUD, remove geometry, increase the guest application pool, or edit game assets.

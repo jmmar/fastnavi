@@ -368,6 +368,11 @@
 # Optional larger compatibility mesh batches within the existing 32 MiB geometry-buffer and GPU group limits.
 # 8 preserves the previous batching. auto can reduce CPU recording work with larger temporary buffers.
 # compat_mesh_batch = 8
+# Optional allocator/cache policy: standard (original defaults) or low. Restart after changing.
+# Low retains less idle staging/texture memory, uses smaller blocks, submits completed upload operations earlier,
+# and retries staging OOM after reclaiming completed idle buffers. It can increase allocation or upload overhead.
+# Explicit allocator/cache overrides still apply. It does not enlarge the guest application-memory pool.
+# memory_profile = standard
 # 3D render scale: the scene's size relative to the game resolution, game (5/6, the game's own 1600x900 at 1080p) or
 # a percentage (25 to 400, at most 4096 pixels a side); above 100 supersamples the scene (anti-aliasing). Read at start.
 # render_scale = game

@@ -58,9 +58,11 @@ VkDeviceSize vk_vma_block_size(void) {
     static VkDeviceSize size;
     if (!size) {
         int mb = cfg_int("NX2NAVI_VMA_BLOCK_MB");
+        if (cfg_low_memory() && !cfg_is_set("NX2NAVI_VMA_BLOCK_MB")) mb = 16;
         mb = mb < 16 ? 16 : mb > 256 ? 256 : mb;
         size = (VkDeviceSize)mb << 20;
         rt_log("vk: VMA blocks of %d MiB on heaps over 1 GiB (NX2NAVI_VMA_BLOCK_MB)", mb);
+        if (cfg_low_memory()) rt_log("vk: low-memory profile active; explicit allocator/cache overrides retain precedence");
     }
     return size;
 }
@@ -99,7 +101,7 @@ static void VKAPI_PTR on_allocate(VmaAllocator a, uint32_t type, VkDeviceMemory 
 const VmaDeviceMemoryCallbacks *vk_headroom_callbacks(void) {
     static const VmaDeviceMemoryCallbacks cb = {.pfnAllocate = on_allocate};
     const char *v = cfg_get("NX2NAVI_VRAM_HEADROOM");   // empty is unset: the key has no settings row for cfg_bool
-    H.on = !v || !*v || cfg_bool("NX2NAVI_VRAM_HEADROOM");
+    H.on = v && *v ? cfg_bool("NX2NAVI_VRAM_HEADROOM") : !cfg_low_memory();
     return H.on ? &cb : NULL;
 }
 

@@ -21,6 +21,7 @@
 #include "vk_dlaa.h"
 #include "vk_exec.h"
 #include "vk_gpa.h"
+#include "vk_diag.h"
 #include "wb_merge_spv.h"
 #include "platform/platform.h"
 
@@ -3373,6 +3374,7 @@ typedef struct {
     StgChunk *chunk;          // arena chunks this batch's uploads took ranges of (vk_staging_at), the last one open
     int nchunk, cap_chunk;
     VkDeviceSize chunk_used;  // bytes of the last chunk handed out
+    VkDeviceSize bytes;       // batch-owned staging buffer capacities, including arena chunks
 } Batch;
 
 enum { DEAD_IMAGE = 1, DEAD_IMAGE_VMA, DEAD_VIEW, DEAD_BUFFER_VMA, DEAD_HOST };
@@ -3383,8 +3385,10 @@ static PlatOnce cmd_once = PLAT_ONCE_INIT;
 static VkCommandPool cmd_pool;
 static Batch open_b;
 static int open_active;
+static _Thread_local unsigned upload_depth;
 static Batch *inflight;
 static int ninflight, cap_inflight;
+static VkDeviceSize inflight_bytes;
 static Batch *spare;                  // completed batches whose command buffer and fence are reused
 static int nspare, cap_spare;
 static uint64_t next_seq, done_seq;   // batches handed out / completed (all batches up to done_seq)
@@ -3430,9 +3434,35 @@ static StgChunk arena_free[ARENA_KEEP];
 static int narena_free;
 static uint64_t arena_made, arena_ranges;
 
+// Published under cmd_lock; the fatal-path reader takes no locks and makes no Vulkan calls.
+static uint64_t upload_open_stat, upload_inflight_stat, upload_cache_stat, upload_arena_stat, upload_batches_stat, upload_peak_stat;
+static void upload_snapshot(void) {
+    uint64_t own = open_active ? open_b.bytes : 0, arena = (uint64_t)narena_free * ARENA_CHUNK;
+    __atomic_store_n(&upload_open_stat, own, __ATOMIC_RELAXED);
+    __atomic_store_n(&upload_inflight_stat, inflight_bytes, __ATOMIC_RELAXED);
+    __atomic_store_n(&upload_cache_stat, stg_cache_bytes, __ATOMIC_RELAXED);
+    __atomic_store_n(&upload_arena_stat, arena, __ATOMIC_RELAXED);
+    __atomic_store_n(&upload_batches_stat, (uint64_t)ninflight, __ATOMIC_RELAXED);
+    uint64_t total = own + inflight_bytes + stg_cache_bytes + arena;
+    if (total > __atomic_load_n(&upload_peak_stat, __ATOMIC_RELAXED))
+        __atomic_store_n(&upload_peak_stat, total, __ATOMIC_RELAXED);
+}
+void vk_upload_diagnostic(void) {
+    const double M = 1048576.0;
+    rt_log("graphics memory: batch-owned staging capacities: open %.1f MiB, in-flight %.1f MiB in %llu batches, "
+           "cached %.1f MiB, idle arena %.1f MiB, peak total %.1f MiB (excludes caller-owned staging and allocator block slack)",
+           __atomic_load_n(&upload_open_stat, __ATOMIC_RELAXED) / M,
+           __atomic_load_n(&upload_inflight_stat, __ATOMIC_RELAXED) / M,
+           (unsigned long long)__atomic_load_n(&upload_batches_stat, __ATOMIC_RELAXED),
+           __atomic_load_n(&upload_cache_stat, __ATOMIC_RELAXED) / M,
+           __atomic_load_n(&upload_arena_stat, __ATOMIC_RELAXED) / M,
+           __atomic_load_n(&upload_peak_stat, __ATOMIC_RELAXED) / M);
+}
+
 static void free_staging(VkCtx *c, Batch *b) {
     for (int i = 0; i < b->nstg; i++) {
-        if (stg_ncache < STG_CACHE && stg_cache_bytes + b->stg[i].size <= STG_CACHE_BYTES) {
+        uint64_t cap = cfg_low_memory() ? 16ull << 20 : STG_CACHE_BYTES;
+        if (stg_ncache < STG_CACHE && stg_cache_bytes + b->stg[i].size <= cap) {
             stg_cache[stg_ncache++] = b->stg[i];
             stg_cache_bytes += b->stg[i].size;
             continue;
@@ -3441,10 +3471,10 @@ static void free_staging(VkCtx *c, Batch *b) {
     }
     b->nstg = 0;
     for (int i = 0; i < b->nchunk; i++) {
-        if (narena_free < ARENA_KEEP) arena_free[narena_free++] = b->chunk[i];
+        if (narena_free < (cfg_low_memory() ? 2 : ARENA_KEEP)) arena_free[narena_free++] = b->chunk[i];
         else vmaDestroyBuffer(c->vma, b->chunk[i].buf, b->chunk[i].alloc);
     }
-    b->nchunk = 0, b->chunk_used = 0;
+    b->nchunk = 0, b->chunk_used = 0, b->bytes = 0;
 }
 
 // The cached staging buffer that fits n with the least waste: at most four times the request, so a small upload does not
@@ -3469,8 +3499,15 @@ static void retire(VkCtx *c, int wait_all) {
     int k = 0;
     for (; k < ninflight; k++) {
         Batch *b = &inflight[k];
-        if (wait_all) vkWaitForFences(c->device, 1, &b->fence, VK_TRUE, UINT64_MAX);
-        else if (vkGetFenceStatus(c->device, b->fence) != VK_SUCCESS) break;
+        VkResult status = wait_all ? vkWaitForFences(c->device, 1, &b->fence, VK_TRUE, UINT64_MAX)
+                                   : vkGetFenceStatus(c->device, b->fence);
+        if (status == VK_NOT_READY) break;
+        if (status != VK_SUCCESS) {
+            vk_device_fault_report(status);
+            rt_fatal("vk: upload batch %llu retirement failed (%d); resources not recycled",
+                     (unsigned long long)b->seq, (int)status);
+        }
+        inflight_bytes -= b->bytes;
         free_staging(c, b);
         done_seq = b->seq;
         if (nspare == cap_spare) grow((void **)&spare, &cap_spare, sizeof *spare);
@@ -3478,6 +3515,7 @@ static void retire(VkCtx *c, int wait_all) {
     }
     memmove(inflight, inflight + k, (size_t)(ninflight - k) * sizeof *inflight);
     ninflight -= k;
+    upload_snapshot();
 }
 
 static void destroy_dead(VkCtx *c, const Dead *d) {
@@ -3517,6 +3555,7 @@ static void collect_locked(VkCtx *c) { collect_locked_out(c, NULL, NULL, NULL); 
 VkCommandBuffer vk_upload_begin(void) {
     plat_once(&cmd_once, cmd_init, NULL);
     plat_rmutex_lock(&cmd_lock);
+    upload_depth++;
     VkCtx *c = vk_ctx();
     if (!c) rt_fatal("vk: upload before vk_init");
     if (open_active) return open_b.cb;
@@ -3551,7 +3590,15 @@ VkCommandBuffer vk_upload_begin(void) {
     return open_b.cb;
 }
 
-void vk_upload_end(void) { plat_rmutex_unlock(&cmd_lock); }
+void vk_upload_end(void) {
+    // Split only after the outermost caller finished recording its complete operation. A flush inside vk_staging
+    // would invalidate the command-buffer handle still held by that caller. Submit without waiting for the GPU.
+    int flush = cfg_low_memory() && upload_depth == 1 && open_active && open_b.bytes >= (32ull << 20);
+    if (upload_depth) upload_depth--;
+    upload_snapshot();
+    plat_rmutex_unlock(&cmd_lock);
+    if (flush) vk_upload_flush(0);
+}
 
 // Staging memory comes from a pool of its own that keeps STG_MIN_BLOCKS blocks from its first use (at boot). In the
 // default pools VMA creates a block under the lock of its memory type (VmaBlockVector::Allocate), so a block made by
@@ -3562,6 +3609,36 @@ void vk_upload_end(void) { plat_rmutex_unlock(&cmd_lock); }
 #define STG_MIN_BLOCKS 2
 static VmaPool stg_pool;
 static int stg_pool_tried;
+static VkDeviceSize stg_pool_block = STG_BLOCK;
+
+static int staging_oom(VkResult r) { return r == VK_ERROR_OUT_OF_HOST_MEMORY || r == VK_ERROR_OUT_OF_DEVICE_MEMORY; }
+
+// Recover only in the optional low-memory profile. Retire already-signalled batches and purge only idle buffers;
+// the current batch and unsignalled batches retain every resource. Never wait for or submit an open operation here.
+static VkResult staging_create(VkCtx *c, const VkBufferCreateInfo *bi, const VmaAllocationCreateInfo *aci,
+                               VkBuffer *buffer, VmaAllocation *allocation, VmaAllocationInfo *info) {
+    VkResult r = vmaCreateBuffer(c->vma, bi, aci, buffer, allocation, info);
+    if (!staging_oom(r) || !cfg_low_memory()) return r;
+    plat_rmutex_lock(&cmd_lock);
+    retire(c, 0);
+    uint64_t freed = stg_cache_bytes + (uint64_t)narena_free * ARENA_CHUNK;
+    for (int i = 0; i < stg_ncache; i++) vmaDestroyBuffer(c->vma, stg_cache[i].buf, stg_cache[i].alloc);
+    stg_ncache = 0, stg_cache_bytes = 0;
+    for (int i = 0; i < narena_free; i++) vmaDestroyBuffer(c->vma, arena_free[i].buf, arena_free[i].alloc);
+    narena_free = 0;
+    upload_snapshot();
+    rt_log("vk: low-memory staging retry: request %.2f MiB, result %d, idle buffer capacities released %.1f MiB; "
+           "current/in-flight uploads retained", bi->size / 1048576.0, (int)r, freed / 1048576.0);
+    r = vmaCreateBuffer(c->vma, bi, aci, buffer, allocation, info);
+    if (staging_oom(r) && aci->pool) {
+        VmaAllocationCreateInfo fallback = *aci;
+        fallback.pool = NULL;
+        r = vmaCreateBuffer(c->vma, bi, &fallback, buffer, allocation, info);
+        rt_log("vk: low-memory staging retry in default pool: result %d", (int)r);
+    }
+    plat_rmutex_unlock(&cmd_lock);
+    return r;
+}
 
 void *vk_staging(VkDeviceSize size, VkBuffer *buf, VmaAllocation *alloc) {
     VkCtx *c = vk_ctx();
@@ -3574,18 +3651,22 @@ void *vk_staging(VkDeviceSize size, VkBuffer *buf, VmaAllocation *alloc) {
         plat_rmutex_lock(&cmd_lock);
         if (!stg_pool_tried) {
             uint32_t type;
-            VmaPoolCreateInfo pi = {.blockSize = STG_BLOCK, .minBlockCount = STG_MIN_BLOCKS};
+            stg_pool_block = cfg_low_memory() ? 16ull << 20 : STG_BLOCK;
+            unsigned minimum = cfg_low_memory() ? 0 : STG_MIN_BLOCKS;
+            VmaPoolCreateInfo pi = {.blockSize = stg_pool_block, .minBlockCount = minimum};
             if (vmaFindMemoryTypeIndexForBufferInfo(c->vma, &bi, &aci, &type) == VK_SUCCESS) {
                 pi.memoryTypeIndex = type;
                 if (vmaCreatePool(c->vma, &pi, &stg_pool) != VK_SUCCESS) stg_pool = NULL;
             }
             rt_log("vk: staging pool %s (%d blocks of %llu MiB kept)", stg_pool ? "created" : "unavailable: default pool",
-                   STG_MIN_BLOCKS, (unsigned long long)(STG_BLOCK >> 20));
+                   (int)minimum, (unsigned long long)(stg_pool_block >> 20));
+            if (cfg_low_memory()) rt_log("vk: low-memory profile: staging cache 16 MiB, idle arena 16 MiB, "
+                                         "upload operation-boundary flush at 32 MiB; no additional GPU wait");
             __atomic_store_n(&stg_pool_tried, 1, __ATOMIC_RELEASE);
         }
         plat_rmutex_unlock(&cmd_lock);
     }
-    if (stg_pool && bi.size <= STG_BLOCK / 2) aci.pool = stg_pool;
+    if (stg_pool && bi.size <= stg_pool_block / 2) aci.pool = stg_pool;
     if (!alloc) {   // the batch owns it, so a cached one of a fitting size serves
         Staging cs;
         void *cmap;
@@ -3593,20 +3674,28 @@ void *vk_staging(VkDeviceSize size, VkBuffer *buf, VmaAllocation *alloc) {
             *buf = cs.buf;
             if (open_b.nstg == open_b.cap) grow((void **)&open_b.stg, &open_b.cap, sizeof *open_b.stg);
             open_b.stg[open_b.nstg++] = cs;
+            open_b.bytes += cs.size;
+            upload_snapshot();
             return cmap;
         }
     }
     VmaAllocationInfo info;
     VkBuffer b;
     VmaAllocation a;
-    VkResult r = vmaCreateBuffer(c->vma, &bi, &aci, &b, &a, &info);
-    if (r != VK_SUCCESS) rt_fatal("vk: staging buffer of %llu bytes failed (%d)", (unsigned long long)size, (int)r);
+    VkResult r = staging_create(c, &bi, &aci, &b, &a, &info);
+    if (r != VK_SUCCESS) {
+        vk_upload_diagnostic();
+        vk_device_fault_report(r);
+        rt_fatal("vk: staging buffer of %llu bytes failed (%d)", (unsigned long long)size, (int)r);
+    }
     vk_texstat_add(VK_TS_STG_NEW, 1, bi.size);
     *buf = b;
     if (alloc) *alloc = a;   // the caller destroys it (vmaDestroyBuffer) after vk_upload_flush(1)
     else {
         if (open_b.nstg == open_b.cap) grow((void **)&open_b.stg, &open_b.cap, sizeof *open_b.stg);
         open_b.stg[open_b.nstg++] = (Staging){b, a, bi.size};
+        open_b.bytes += bi.size;
+        upload_snapshot();
     }
     return info.pMappedData;
 }
@@ -3636,7 +3725,12 @@ void *vk_staging_at(VkDeviceSize size, VkBuffer *buf, VkDeviceSize *off) {
                                                     VMA_ALLOCATION_CREATE_MAPPED_BIT};
             if (stg_pool) aci.pool = stg_pool;   // half of a staging block (STG_BLOCK)
             VmaAllocationInfo info;
-            if (vmaCreateBuffer(c->vma, &bi, &aci, &k.buf, &k.alloc, &info) != VK_SUCCESS)
+            VkResult r = staging_create(c, &bi, &aci, &k.buf, &k.alloc, &info);
+            if (r == VK_ERROR_DEVICE_LOST) {
+                vk_device_fault_report(r);
+                rt_fatal("vk: staging arena device lost (%d)", (int)r);
+            }
+            if (r != VK_SUCCESS)
                 return vk_staging(size, buf, NULL);
             k.map = info.pMappedData;
             vk_texstat_add(VK_TS_STG_NEW, 1, ARENA_CHUNK);
@@ -3645,6 +3739,8 @@ void *vk_staging_at(VkDeviceSize size, VkBuffer *buf, VkDeviceSize *off) {
         }
         if (open_b.nchunk == open_b.cap_chunk) grow((void **)&open_b.chunk, &open_b.cap_chunk, sizeof *open_b.chunk);
         open_b.chunk[open_b.nchunk++] = k;
+        open_b.bytes += ARENA_CHUNK;
+        upload_snapshot();
         at = 0;
     }
     StgChunk *k = &open_b.chunk[open_b.nchunk - 1];
@@ -3661,6 +3757,9 @@ uint64_t vk_upload_flush(int wait) {
     VkCtx *c = vk_ctx();
     uint64_t seq = next_seq;
     if (c && open_active) {
+        vk_diag_note("upload-submit", 0, open_b.cb, open_b.bytes, (uint64_t)ninflight, stg_cache_bytes,
+                     (uint64_t)narena_free * ARENA_CHUNK);
+        upload_snapshot();
         for (int i = 0; i < open_b.nstg; i++) vmaFlushAllocation(c->vma, open_b.stg[i].alloc, 0, VK_WHOLE_SIZE);
         for (int i = 0; i < open_b.nchunk; i++)
             vmaFlushAllocation(c->vma, open_b.chunk[i].alloc, 0, i + 1 < open_b.nchunk ? VK_WHOLE_SIZE : open_b.chunk_used);
@@ -3676,7 +3775,9 @@ uint64_t vk_upload_flush(int wait) {
         }
         if (ninflight == cap_inflight) grow((void **)&inflight, &cap_inflight, sizeof *inflight);
         inflight[ninflight++] = open_b;
+        inflight_bytes += open_b.bytes;
         open_active = 0;
+        upload_snapshot();
     }
     if (c && wait) {
         while (ninflight && done_seq < seq) {

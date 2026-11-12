@@ -104,3 +104,7 @@ The current game's patch sets do not provide a universal effects-size control.
 The new target/shader history and GPU pass timings help identify which passes
 are expensive before adding a paired producer/consumer change. The 720p HUD and
 picture do not need to be reduced to investigate smaller world effects.
+
+The following [low-memory profile](low-memory-profile.md) adds optional smaller
+allocator/cache policies, safe staging-allocation retries and per-category memory
+totals to the fatal snapshot. Its standard setting preserves the previous policies.

@@ -1240,6 +1240,7 @@ static uint64_t released_cap_bytes(void) {
             plat_mem_info(&used, &total, &proc);
             mb = total > 0 ? (long long)(total / 32) : 1024;
             mb = mb < 512 ? 512 : mb > 2048 ? 2048 : mb;
+            if (cfg_low_memory()) mb = 128;
         }
         released_cap = mb > 0 ? (uint64_t)mb << 20 : UINT64_MAX;
         if (mb > 0) rt_log("vk: released textures keep at most %lld MiB of their own memory", mb);
@@ -1259,6 +1260,13 @@ static int commit_is_low(void) {
             float ram_used, ram_total, ram_proc;
             plat_mem_info(&ram_used, &ram_total, &ram_proc);
             proc_commit_mb = ram_total > PROC_COMMIT_MIN_MB ? (long long)ram_total : PROC_COMMIT_MIN_MB;
+            if (cfg_low_memory()) {
+                // Released textures should give way before this process fills a small shared-memory PC. The
+                // explicit process-commit override still takes precedence; only stale, unused textures are dropped.
+                proc_commit_mb = ram_total > 0 ? (long long)(ram_total * (2.0 / 3.0)) : 8192;
+                if (proc_commit_mb < 8192) proc_commit_mb = 8192;
+                if (proc_commit_mb > 12288) proc_commit_mb = 12288;
+            }
         }
         if (!plat_commit_enforced()) commit_free_mb = proc_commit_mb = 0;   // no limit known
         char note[2048];   // the platform layer's own lines go to stderr only, so the log file gets this through here

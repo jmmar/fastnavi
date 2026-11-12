@@ -1103,6 +1103,10 @@ static void tab_screen(float scale) {
     opt_group(UI_MENU_MOVIES);
     opt_toggle("NX2NAVI_MOVIE_DEBAND", UI_MENU_MOVIE_DEBAND, UI_MENU_MOVIE_DEBAND_DESC);
     opt_toggle("NX2NAVI_MOVIE_GRAIN", UI_MENU_MOVIE_GRAIN, UI_MENU_MOVIE_GRAIN_DESC);
+    opt_group(UI_MENU_PERF_DIAG_GROUP);
+    static const char *const memory_values[] = {"standard", "low"};
+    const char *memory_names[] = {menu_text(UI_MENU_MEMORY_STANDARD), menu_text(UI_MENU_MEMORY_LOW)};
+    opt_choice_list("NX2NAVI_MEMORY_PROFILE", UI_MENU_MEMORY_PROFILE, memory_values, memory_names, 2, UI_MENU_MEMORY_PROFILE_DESC);
     static const char *const diag_values[] = {"auto", "off", "on", "timed"};
     const char *diag_names[] = {menu_text(UI_MENU_DIAG_AUTO), menu_text(UI_MENU_OFF),
                                 menu_text(UI_MENU_DIAG_HISTORY), menu_text(UI_MENU_DIAG_TIMED)};

@@ -358,6 +358,7 @@ void vk_mem_census(uint64_t frame);               // at each present: pool censu
 float vk_mem_device_used_mb(void);                // device-local memory this process holds (the driver's budget
                                                   // figure), MB; -1 without VK_EXT_memory_budget. Any thread.
 void vk_mem_stage_log(const char *stage);         // one line after a boot stage: device memory, process commit
+void vk_upload_diagnostic(void);                // atomic staging snapshot, no GPU calls or renderer locks
 // VRAM in use and its budget, summed over the DEVICE_LOCAL heaps. exact 1: VK_EXT_memory_budget (the whole process),
 // 0: this allocator's own allocations against the heap sizes. 0 when unknown.
 int vk_mem_vram(uint64_t *used, uint64_t *budget, int *exact);
@@ -394,6 +395,8 @@ void vk_mem_snap_stats(uint64_t *checks, uint64_t *calls, uint64_t *untracked); 
 int vk_fix_zero(void);
 VkCommandBuffer vk_upload_begin(void);
 void vk_upload_end(void);
+// In the low-memory profile, the outermost end can submit a completed operation once its batch owns 32 MiB.
+// It adds no GPU wait. A command-buffer handle returned by begin must not be used after its matching end.
 void *vk_staging(VkDeviceSize size, VkBuffer *buf, VmaAllocation *alloc);
 // A 256-byte-aligned range of the staging arena owned by the open upload batch (vk_memory.c): *buf at *off. Only
 // between vk_upload_begin and vk_upload_end; a large request gets a buffer of its own at offset 0.
