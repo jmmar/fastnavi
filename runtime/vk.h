@@ -120,6 +120,7 @@ typedef struct {
     uint32_t layer;                     // NX2NAVI_GPU_PASSES: the first layer of the depth target (a shadow cascade)
 } VkPassMark;
 void vk_gpu_passes_frame(uint64_t frame);   // vk_crumbs.c, each present: NX2NAVI_GPU_PASSES, GPU time per pass and dispatch
+void vk_gpu_passes_request(void);          // request the next idle capture window, without interrupting in-flight queries
 // NX2NAVI_GPU_PASSES also times what a part of a submission spends outside its passes and dispatches (vk_crumbs.c, "the
 // gap ledger"). vk_gpu_passes_part: vk_sync.c, at the start (end 0) and the end (end 1) of each part's command buffer.
 // vk_gpu_gap_note: the replay is about to record commands of this kind outside a pass or dispatch; units is their size
@@ -359,6 +360,7 @@ float vk_mem_device_used_mb(void);                // device-local memory this pr
                                                   // figure), MB; -1 without VK_EXT_memory_budget. Any thread.
 void vk_mem_stage_log(const char *stage);         // one line after a boot stage: device memory, process commit
 void vk_upload_diagnostic(void);                // atomic staging snapshot, no GPU calls or renderer locks
+void vk_mesh_compat_shutdown(void);             // release completed geometry cache before allocator destruction
 // VRAM in use and its budget, summed over the DEVICE_LOCAL heaps. exact 1: VK_EXT_memory_budget (the whole process),
 // 0: this allocator's own allocations against the heap sizes. 0 when unknown.
 int vk_mem_vram(uint64_t *used, uint64_t *budget, int *exact);
@@ -618,6 +620,7 @@ VkCommandBuffer vk_sync_split_exec(void);   // vk_sync_split for the part before
 int vk_mem_mirror_wb_pending(void);         // vk_memory.c: vk_mem_mirror_end has write-backs to record
 uint64_t vk_sync_fence_done(void);         // highest done value
 uint64_t vk_sync_issued(void);             // newest submitted value (the one being recorded is this + 1)
+void vk_sync_diagnostic(void);             // atomic logical/queued/completed snapshot; no GPU calls or locks
 void vk_sync_finish(void);                 // every submitted value done
 void vk_sync_shutdown(void);               // finish, stop the completion thread, free the command buffers
 // The op-stream replay (vk_exec.c): records the command handles of one submission into cb, which the caller has

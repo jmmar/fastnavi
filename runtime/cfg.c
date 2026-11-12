@@ -69,7 +69,7 @@ static const char *const known[] = {
     "BIND_REUSE", "DYN_DELTA", "STG_ARENA", "SUBMIT_BATCH", "ASTC_GPU_DESWIZZLE", "ASTC_SCRATCH_KEEP", "ASTC_ARENA",
     "TEXUP_LOG_MS", "DYN_RES", "DYN_RES_TARGET", "DYN_RES_STEP", "TEXTURE_DETAIL",
     "RECORDER_CORE", "RECORDER_PRIO", "REPLAY_TIME", "LOCK_TIME", "POOL_CREATE_BUDGET", "POOL_CREATE_MS", "POOL_LOAD_BACKLOG", "POOL_LOAD_MS",
-    "VMA_BLOCK_MB", "ASTC_BC_PROBE", "SYNC_WAKE_ALL", "LOG_ASYNC", "MEMORY_PROFILE",
+    "VMA_BLOCK_MB", "ASTC_BC_PROBE", "SYNC_WAKE_ALL", "LOG_ASYNC", "MEMORY_PROFILE", "COMPAT_MESH_GROUPS", "COMPAT_MESH_REUSE",
 };
 
 // The nx2navi.ini section a key cfg_set may write goes to when the file lacks it (nx2navi.ini.example's sections).
@@ -84,6 +84,7 @@ static const struct { const char *key, *section; } sections[] = {
     {"MOVIE_DEBAND", "movies"}, {"MOVIE_GRAIN", "movies"},
     {"GRAPHICS_DIAG", "diagnostics"}, {"COMPAT_MESH_BATCH", "compatibility"},
     {"MEMORY_PROFILE", "performance"},
+    {"COMPAT_MESH_GROUPS", "compatibility"}, {"COMPAT_MESH_REUSE", "compatibility"}, {"FOG_CULL", "display"},
     {"COLOR_PRESET", "display"},
     {"COLOR_BRIGHTNESS", "display"}, {"COLOR_CONTRAST", "display"}, {"COLOR_SATURATION", "display"},
     {"COLOR_GAMMA", "display"}, {"HDR", "display"}, {"HDR_LIVE", "display"}, {"HDR_PEAK_NITS", "display"}, {"HDR_GAME_NITS", "display"},
@@ -170,6 +171,9 @@ static const CfgMeta metas[] = {
     {"GRAPHICS_DIAG", "auto", "auto|off|on|timed", RESTART},   // bounded CPU history; auto on with a compatibility layer
     {"COMPAT_MESH_BATCH", "8", "8|auto", RESTART},   // auto uses the existing buffer/group limits instead of the eight-group cap
     {"MEMORY_PROFILE", "standard", "standard|low", RESTART},   // optional smaller allocator/cache footprints
+    {"COMPAT_MESH_GROUPS", "4096", "4096|256|64", RESTART},   // optional compatibility-only per-draw geometry cap
+    {"COMPAT_MESH_REUSE", "auto", "auto|off|on", RESTART},   // auto: one completed geometry buffer retained in low mode
+    {"FOG_CULL", "0", "0|1", RESTART},   // optional original fog culling; can restore temporal fog trails
     {"ASPECT", "fit", "fit|stretch", LIVE}, {"FOV", "100", "70..140", LIVE},
     {"ANISO", "game", "game|2|4|8|16", LIVE},   // vk_texture.c sampler_features, vk_sampler_aniso_live
     {"TEXTURE_DETAIL", "auto", "auto|full|reduced|low", RESTART},   // vk_texture.c "texture detail", read at the first texture

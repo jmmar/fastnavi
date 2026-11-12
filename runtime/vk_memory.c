@@ -3887,6 +3887,7 @@ void vk_mem_shutdown(void) {
     vk_queue_unlock();
     vk_gpa_report();
     vk_gpa_shutdown();
+    vk_mesh_compat_shutdown();
     vk_texture_shutdown();
     plat_rmutex_lock(&cmd_lock);
     retire(c, 1);

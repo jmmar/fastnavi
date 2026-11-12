@@ -1,6 +1,7 @@
 // Small graphics history retained in memory and written only on a fatal error or device loss. Atomic fields allow a
 // crash on the recorder/upload thread to take a best-effort snapshot while another thread is still recording.
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "cfg.h"
@@ -17,6 +18,7 @@ static Entry history[HISTORY];
 static uint64_t serial, current_frame, dropped;
 static uint64_t mesh_batches, mesh_upper, mesh_ns;
 static uint64_t mesh_live_bytes, mesh_peak_bytes;
+static uint64_t mesh_idle_bytes;
 static int mode, reported;
 
 static int diag_mode(void) {
@@ -42,6 +44,34 @@ uint64_t vk_diag_shader(const GfxShader *shader) {
     uint64_t prefix = 0;
     if (key) for (int i = 0; i < 8; i++) prefix = (prefix << 8) | key[i];
     return prefix;
+}
+
+// Replay thread only. Bridge the GPU profiler's SPIR-V hash to cache keys and declared image resources once per
+// variant. This reads shader metadata, never game buffers or image contents.
+void vk_diag_compute(const GfxShader *shader, uint64_t program, uint32_t x, uint32_t y, uint32_t z) {
+    if (!shader || !vk_diag_enabled()) return;
+    static uint64_t seen[192];
+    static unsigned count;
+    uint64_t key = vk_diag_shader(shader);
+    for (unsigned i = 0; i < count; i++) if (seen[i] == key) return;
+    if (count == 192) return;
+    seen[count++] = key;
+    uint64_t words = 0, hash = 0xcbf29ce484222325ull;
+    const uint8_t *bytes = (const uint8_t *)gfx_shader_spirv(shader, &words);
+    for (uint64_t i = 0; bytes && i < words * 4; i++) hash = (hash ^ bytes[i]) * 0x100000001b3ull;
+    uint32_t local[3];
+    gfx_shader_local_size(shader, local);
+    const GfxShaderRes *images;
+    int n = gfx_shader_resources(shader, GFX_RES_IMG, &images);
+    char resources[384] = "";
+    size_t at = 0;
+    for (int i = 0; i < n && i < 8 && at < sizeof resources - 50; i++)
+        at += (size_t)snprintf(resources + at, sizeof resources - at, " image(slot=%d,type=%#x,fmt=%u)",
+                               images[i].slot, images[i].type, images[i].format);
+    rt_log("graphics diag: compute map program %llu hash %016llx key-prefix %016llx, local %ux%ux%u, "
+           "first groups %ux%ux%u, %llu words, declared images %d:%s",
+           (unsigned long long)program, (unsigned long long)hash, (unsigned long long)key, local[0], local[1], local[2],
+           x, y, z, (unsigned long long)words, n, resources);
 }
 
 void vk_diag_note(const char *operation, uint64_t fence, VkCommandBuffer cb,
@@ -77,6 +107,7 @@ void vk_diag_mesh_memory(int64_t bytes) {
     uint64_t peak = __atomic_load_n(&mesh_peak_bytes, __ATOMIC_RELAXED);
     while (live > peak && !__atomic_compare_exchange_n(&mesh_peak_bytes, &peak, live, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {}
 }
+void vk_diag_mesh_idle(uint64_t bytes) { __atomic_store_n(&mesh_idle_bytes, bytes, __ATOMIC_RELAXED); }
 
 void vk_diag_frame(uint64_t frame, uint64_t draws, uint64_t dispatches, uint64_t passes) {
     if (!vk_diag_enabled()) return;
@@ -106,7 +137,8 @@ void vk_diag_report(void) {
            (unsigned long long)__atomic_load_n(&dropped, __ATOMIC_RELAXED));
     rt_log("graphics diag: fill values = buffer/offset/bytes/pattern; mesh-fill = buffer/offset/bytes/allocation-bytes; "
            "guest-fill = buffer/offset/bytes/backed-end; "
-           "mesh-batch = program/base/count/capacity; pass = width/height/colour-format/depth-layer; "
+           "mesh-batch = program/base/count/capacity; mesh-window = original-upper-bound/recorded-cap/first/indirect; "
+           "pass = width/height/colour-format/depth-layer; "
            "dispatch = shader-key-prefix/groups-x/groups-y/groups-z; draw-ready = vertex-key/fragment-key/width/height; "
            "dispatch-indirect = shader-key-prefix/buffer/offset/unused; "
            "mesh-completed = buffer/allocation-bytes/last-count/last-base");
@@ -137,9 +169,11 @@ void vk_diag_report(void) {
            (unsigned long long)__atomic_load_n(&mesh_batches, __ATOMIC_RELAXED),
            (unsigned long long)__atomic_load_n(&mesh_upper, __ATOMIC_RELAXED),
            __atomic_load_n(&mesh_ns, __ATOMIC_RELAXED) / 1e6);
-    rt_log("graphics memory: compatibility geometry live %.1f MiB, peak %.1f MiB; memory profile %s",
+    rt_log("graphics memory: compatibility geometry live %.1f MiB, peak %.1f MiB, completed idle %.1f MiB; memory profile %s",
            __atomic_load_n(&mesh_live_bytes, __ATOMIC_RELAXED) / 1048576.0,
            __atomic_load_n(&mesh_peak_bytes, __ATOMIC_RELAXED) / 1048576.0,
+           __atomic_load_n(&mesh_idle_bytes, __ATOMIC_RELAXED) / 1048576.0,
            cfg_low_memory() ? "low" : "standard");
     vk_upload_diagnostic();
+    vk_sync_diagnostic();
 }

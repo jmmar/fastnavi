@@ -401,6 +401,9 @@ static void set_at_frame(uint64_t frame) {
     }
 }
 
+static uint32_t gp_requested;
+void vk_gpu_passes_request(void) { __atomic_store_n(&gp_requested, 1, __ATOMIC_RELEASE); }
+
 void vk_gpu_passes_frame(uint64_t frame) {
     set_at_frame(frame);
     if (gp_state < 0) return;
@@ -430,7 +433,12 @@ void vk_gpu_passes_frame(uint64_t frame) {
         rt_log("gpu passes: timing %d frames every %d presents (NX2NAVI_GPU_PASSES)", GP_FRAMES, GP_PERIOD);
     }
     if (gp_phase == 0) {
-        if (frame % GP_PERIOD) return;
+        uint32_t requested = __atomic_load_n(&gp_requested, __ATOMIC_ACQUIRE);
+        if (frame % GP_PERIOD && !requested) return;
+        if (requested) {
+            __atomic_store_n(&gp_requested, 0, __ATOMIC_RELEASE);
+            rt_log("gpu passes: requested scene-transition capture starts at frame %llu", (unsigned long long)frame);
+        }
         vkResetQueryPool(c->device, gp_pool, 0, GP_SLOTS * 2);
         if (gp_prims) vkResetQueryPool(c->device, gp_prims, 0, GP_SLOTS);
         if (gp_stats) vkResetQueryPool(c->device, gp_stats, 0, GP_SLOTS);

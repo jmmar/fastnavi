@@ -28,6 +28,7 @@
 #include "platform/platform.h"
 #include "vk.h"
 #include "vk_dlaa.h"
+#include "vk_diag.h"
 #include "vk_exec.h"
 #include "vk_ffx.h"
 #include "vk_rec.h"
@@ -1847,8 +1848,8 @@ static int output_target(VkFormat f) { return srgb8(f) || vk_hdr_native_picture(
 
 double wide_dlss_share(void);   // widescreen.c: the DLSS mode's share of the picture (1 DLAA), 0 off
 
-// Scene-size telemetry also runs without temporal AA. Take the largest matching G-buffer depth in a present
-// interval: half-size effects have smaller buffers and shadow maps do not have this colour/depth arrangement.
+// Scene-size telemetry also runs without temporal AA. Take the largest matching G-buffer or light/depth pair in a
+// present interval. Smaller effects do not replace it, and square shadow maps fail the picture-aspect check.
 static unsigned observed_scene_w, observed_scene_h;
 static uint64_t observed_scene_size;
 int vk_scene_size(unsigned *w, unsigned *h) {
@@ -1861,13 +1862,19 @@ void vk_dlaa_pass(VkExec *ex) {
     const VkExecTarget *c = &ex->color[0], *z = &ex->depth;
     static int observe = -1;
     if (observe < 0) observe = wide_available();
-    if (observe && ex->pass_ncolor >= 3 && c->image && z->image && z->format == VK_FORMAT_D32_SFLOAT &&
+    int scene_shape = ex->pass_ncolor >= 3 || (ex->pass_ncolor == 1 && scene_color(c->format));
+    if (observe && scene_shape && c->image && z->image && z->format == VK_FORMAT_D32_SFLOAT &&
         z->width >= DLAA_SCENE_MIN_W && z->height && c->width == z->width && c->height == z->height) {
         unsigned pw, ph;
         wide_picture(&pw, &ph);
         double ratio = (double)z->width * ph / ((double)z->height * pw);
         if (ratio > 0.95 && ratio < 1.05 && z->width >= observed_scene_w) {
             observed_scene_w = z->width, observed_scene_h = z->height;
+            static int requested;
+            if (!requested && vk_diag_timing()) {
+                requested = 1;
+                vk_gpu_passes_request();
+            }
         }
     }
     if (!dl_active()) return;
@@ -2020,7 +2027,7 @@ void vk_dlaa_frame(void) {
     __atomic_store_n(&observed_scene_size, size, __ATOMIC_RELAXED);
     static uint64_t logged_size;
     if (size && size != logged_size) {
-        rt_log("graphics: observed world G-buffer %ux%u (HUD/picture resolution is separate)",
+        rt_log("graphics: observed world depth/colour target %ux%u (HUD/picture resolution is separate)",
                observed_scene_w, observed_scene_h);
         logged_size = size;
     }

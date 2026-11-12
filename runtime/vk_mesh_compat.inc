@@ -7,11 +7,31 @@ typedef struct {
     uint64_t bytes, fence;
 } MeshCompatBuffer;
 static MeshCompatBuffer mc_buffer;
+static MeshCompatBuffer *mc_idle;
+static PlatMutex mc_idle_lock = PLAT_MUTEX_INIT;
+static int mc_closed;
 static struct {
     int active, indirect;
-    uint32_t count, first, base, batch, capacity;
+    int failure, allocation_retryable;
+    uint32_t count, original_count, first, base, batch, capacity;
     VkMemSpan arguments;
 } mc_draw;
+
+static int mesh_compat_reuse(void) {
+    const char *s = cfg_value("NX2NAVI_COMPAT_MESH_REUSE");
+    return !strcmp(s, "on") || (!strcmp(s, "auto") && cfg_low_memory());
+}
+
+void vk_mesh_compat_shutdown(void) {
+    plat_mutex_lock(&mc_idle_lock);
+    mc_closed = 1;
+    MeshCompatBuffer *b = mc_idle;
+    mc_idle = NULL;
+    vk_diag_mesh_idle(0);
+    plat_mutex_unlock(&mc_idle_lock);
+    if (b) vmaDestroyBuffer(vk_ctx()->vma, b->buffer, b->allocation), free(b);
+    memset(&mc_buffer, 0, sizeof mc_buffer);
+}
 
 static void mesh_compat_release(void *argument) {
     MeshCompatBuffer *b = argument;
@@ -21,8 +41,22 @@ static void mesh_compat_release(void *argument) {
                               b->mapped[16], MC_INDIRECT_LIMIT);
     vk_diag_note("mesh-completed", b->fence, VK_NULL_HANDLE, (uintptr_t)b->buffer, b->bytes, b->mapped[4], b->mapped[5]);
     vk_diag_mesh_memory(-(int64_t)b->bytes);
-    vmaDestroyBuffer(vk_ctx()->vma, b->buffer, b->allocation);
-    free(b);
+    uint32_t limit = (uint32_t)cfg_int("NX2NAVI_COMPAT_MESH_GROUPS");
+    static volatile int32_t cap_logs;
+    if ((limit == 64 || limit == 256) && b->mapped[4] > limit && plat_inc32(&cap_logs) <= 8)
+        rt_log("vk compat: reduced geometry cap %u, last completed draw requested %u groups; geometry beyond cap omitted",
+               limit, b->mapped[4]);
+    MeshCompatBuffer *drop = b;
+    plat_mutex_lock(&mc_idle_lock);
+    // The completion callback proves this buffer is no longer read by the GPU. Retain at most one, preferring the
+    // largest, so the next submission can use it without another large mapped allocation.
+    if (!mc_closed && mesh_compat_reuse() && (!mc_idle || b->bytes > mc_idle->bytes)) {
+        drop = mc_idle;
+        mc_idle = b;
+    }
+    vk_diag_mesh_idle(mc_idle ? mc_idle->bytes : 0);
+    plat_mutex_unlock(&mc_idle_lock);
+    if (drop) vmaDestroyBuffer(vk_ctx()->vma, drop->buffer, drop->allocation), free(drop);
 }
 
 static int mesh_compat_buffer(VkExec *ex, uint64_t bytes) {
@@ -30,8 +64,28 @@ static int mesh_compat_buffer(VkExec *ex, uint64_t bytes) {
         ex->compat_mesh_buffer = (VkDescriptorBufferInfo){mc_buffer.buffer, 0, bytes};
         return 1;
     }
-    MeshCompatBuffer *b = calloc(1, sizeof *b);
-    if (!b) return 0;
+    MeshCompatBuffer *b = NULL;
+    mc_draw.allocation_retryable = 0;
+    plat_mutex_lock(&mc_idle_lock);
+    mc_closed = 0;
+    if (mesh_compat_reuse() && mc_idle && mc_idle->bytes >= bytes) {
+        b = mc_idle;
+        mc_idle = NULL;
+        vk_diag_mesh_idle(0);
+    }
+    plat_mutex_unlock(&mc_idle_lock);
+    if (b) {
+        b->fence = ex->fence;
+        b->mapped[16] = 0;
+        mc_buffer = *b;
+        vk_diag_mesh_memory((int64_t)b->bytes);
+        vk_diag_note("mesh-reused", ex->fence, ex->cb, (uintptr_t)b->buffer, bytes, b->bytes, 0);
+        vk_completion_add(ex->fence, mesh_compat_release, b);
+        ex->compat_mesh_buffer = (VkDescriptorBufferInfo){b->buffer, 0, bytes};
+        return 1;
+    }
+    b = calloc(1, sizeof *b);
+    if (!b) { mc_draw.allocation_retryable = 1; return 0; }
     VkBufferCreateInfo bi = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = bytes,
         .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT};
@@ -39,7 +93,20 @@ static int mesh_compat_buffer(VkExec *ex, uint64_t bytes) {
         .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
         .requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
     VmaAllocationInfo info;
-    if (vmaCreateBuffer(vk_ctx()->vma, &bi, &ai, &b->buffer, &b->allocation, &info) != VK_SUCCESS) { free(b); return 0; }
+    VkResult result = vmaCreateBuffer(vk_ctx()->vma, &bi, &ai, &b->buffer, &b->allocation, &info);
+    if (result != VK_SUCCESS) {
+        free(b);
+        mc_draw.allocation_retryable = result == VK_ERROR_OUT_OF_HOST_MEMORY || result == VK_ERROR_OUT_OF_DEVICE_MEMORY;
+        vk_diag_note("mesh-allocation-failed", ex->fence, ex->cb, bytes, (uint64_t)(int64_t)result, 0, 0);
+        static volatile int32_t logs;
+        if (plat_inc32(&logs) <= 16) rt_log("vk compat: geometry allocation %.2f MiB failed (%d); smaller batches %s",
+                                            bytes / 1048576.0, (int)result, mc_draw.allocation_retryable ? "will be attempted" : "not applicable");
+        if (result == VK_ERROR_DEVICE_LOST) {
+            vk_device_fault_report(result);
+            rt_fatal("vk compat: geometry allocation encountered device loss");
+        }
+        return 0;
+    }
     b->mapped = info.pMappedData, b->bytes = bytes, b->fence = ex->fence;
     b->mapped[16] = 0; // GPU writes overflow status; completion reads it only after this fence.
     mc_buffer = *b;
@@ -74,6 +141,7 @@ static int mesh_compat_dispatch(VkExec *ex, const GfxShader *cs, int stage, uint
 
 static int mesh_compat_generate(VkExec *ex, const GfxShader *mesh, const GfxShader *task,
                                 const GfxShader **vertex, int *primitive) {
+    mc_draw.failure = SK_COMPAT_METADATA;
     const GfxMeshCompute *m = gfx_shader_mesh_compute(mesh), *t = task ? gfx_shader_mesh_compute(task) : NULL;
     if (!mc_draw.active || !m || (task && !t) || (m->task != (task != NULL)) || !m->maxp ||
         m->maxp > 256 || m->ipp < 1 || m->ipp > 3 || m->stride < 8 || m->stride > 136 ||
@@ -93,20 +161,29 @@ static int mesh_compat_generate(VkExec *ex, const GfxShader *mesh, const GfxShad
     uint32_t groups_limit = vk_ctx()->props.limits.maxComputeWorkGroupCount[0];
     if (capacity > groups_limit / children) capacity = groups_limit / children;
     if (!capacity) return warn_once(W_MESH, "one compatibility task group exceeds the geometry buffer budget"), 0;
-    mc_draw.capacity = capacity;
     uint32_t remaining = mc_draw.count - mc_draw.base;
+    if (capacity > remaining) capacity = remaining;
+    uint32_t payload_at = MC_HEADER_WORDS;
+    uint32_t vertices_at;
+    uint64_t bytes;
+    mc_draw.failure = SK_COMPAT_BUFFER;
+    for (;;) {
+        vertices_at = (payload_at + capacity * (m->payload + 1) + 3) & ~3u;
+        bytes = ((uint64_t)vertices_at + (uint64_t)capacity * children * m->maxp * m->ipp * m->stride) * 4;
+        if (mesh_compat_buffer(ex, bytes)) break;
+        if (!mc_draw.allocation_retryable || capacity <= 1)
+            return warn_once(W_MESH, "compatibility geometry allocation failed even for the smallest attempted batch"), 0;
+        capacity /= 2;   // still process all configured groups, in smaller batches, without dropping geometry
+    }
+    mc_draw.capacity = capacity;
     uint32_t batch = remaining < capacity ? remaining : capacity;
     mc_draw.batch = batch;
-    uint32_t payload_at = MC_HEADER_WORDS;
-    uint32_t vertices_at = (payload_at + capacity * (m->payload + 1) + 3) & ~3u;
-    uint64_t bytes = ((uint64_t)vertices_at + (uint64_t)capacity * children * m->maxp * m->ipp * m->stride) * 4;
-    if (!mesh_compat_buffer(ex, bytes)) return warn_once(W_MESH, "compatibility geometry buffer allocation failed"), 0;
     vk_diag_note("mesh-batch", ex->fence, ex->cb, ex->prog ? ex->prog->serial : 0, mc_draw.base, batch, capacity);
     vk_contact_flush(ex);
     vk_exec_barrier(ex); // previous draws have finished reading this buffer before its next batch rewrites it
-    uint32_t header[16] = {0, 1, 0, 0, mc_draw.count, mc_draw.base, batch, children, m->payload,
+    uint32_t header[16] = {0, 1, 0, 0, mc_draw.original_count, mc_draw.base, batch, children, m->payload,
         m->maxp, m->ipp, m->stride, vertices_at, payload_at, mc_draw.first,
-        mc_draw.indirect ? MC_INDIRECT_LIMIT : mc_draw.count};
+        mc_draw.indirect ? MC_INDIRECT_LIMIT : mc_draw.original_count};
     vkCmdUpdateBuffer(ex->cb, mc_buffer.buffer, 0, sizeof header, header);
     vk_diag_note("mesh-fill", ex->fence, ex->cb, (uintptr_t)mc_buffer.buffer, 4ull * payload_at,
                  4ull * capacity * (m->payload + 1), mc_buffer.bytes);
@@ -123,6 +200,7 @@ static int mesh_compat_generate(VkExec *ex, const GfxShader *mesh, const GfxShad
                      mc_draw.arguments.offset, (uintptr_t)mc_buffer.buffer, 0);
     }
     vk_exec_barrier(ex);
+    mc_draw.failure = SK_COMPAT_PIPELINE;
     if (t) {
         if (!mesh_compat_dispatch(ex, t->compute, GFX_STAGE_TS, batch)) return 0;
         vk_exec_barrier(ex); // task payloads are visible to mesh compute

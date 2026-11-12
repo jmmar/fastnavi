@@ -373,6 +373,12 @@
 # and retries staging OOM after reclaiming completed idle buffers. It can increase allocation or upload overhead.
 # Explicit allocator/cache overrides still apply. It does not enlarge the guest application-memory pool.
 # memory_profile = standard
+# Optional compatibility geometry cap: 4096 (existing limit), 256, 64. Reduced values can omit useful objects.
+# compat_mesh_groups = 4096
+# Keep one completed geometry buffer (up to 32 MiB): auto (in low-memory mode), off, on. Restart-only.
+# compat_mesh_reuse = auto
+# Original fog depth culling can reduce volume work but restore fog trails. 0 keeps the existing temporal fix.
+# fog_cull = 0
 # 3D render scale: the scene's size relative to the game resolution, game (5/6, the game's own 1600x900 at 1080p) or
 # a percentage (25 to 400, at most 4096 pixels a side); above 100 supersamples the scene (anti-aliasing). Read at start.
 # render_scale = game

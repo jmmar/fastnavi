@@ -1,0 +1,23 @@
+# Optional aggressive compatibility profile. Merge into the existing nx2navi.ini; restart with the new runtime.
+# The group cap can remove useful world geometry. It is an experiment for the player's visual evaluation.
+
+[performance]
+memory_profile = low
+submit_batch = 1
+
+[compatibility]
+compat_mesh_groups = 64
+compat_mesh_reuse = auto
+
+[display]
+fog_cull = 1
+
+[diagnostics]
+graphics_diag = timed
+
+# Restore previous detail and submission policy without rebuilding:
+# compat_mesh_groups = 4096
+# fog_cull = 0
+# submit_batch = 4
+# compat_mesh_reuse = off
+# memory_profile = standard

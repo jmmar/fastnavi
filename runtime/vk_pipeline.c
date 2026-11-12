@@ -43,6 +43,7 @@
 #include <string.h>
 
 #include "cfg.h"
+#include "vk_diag.h"
 #include "gfx.h"
 #include "host.h"
 #include "nvn_hmap.h"
@@ -4310,7 +4311,8 @@ static int fog_skip_block(const uint32_t *w, uint64_t n, uint64_t at, const uint
 // NX2NAVI_FOG_CULL=1 keeps the game's skip.
 static uint32_t *spirv_fog_keep_froxels(const uint32_t *w, uint64_t n) {
     const char *e = cfg_get("NX2NAVI_FOG_CULL");
-    if (n < 6 || (e && !strcmp(e, "1"))) return NULL;
+    int cull = e && !strcmp(e, "1");
+    if (n < 6 || (cull && !vk_diag_enabled())) return NULL;
     uint32_t bound = w[3];
     int writes = 0;
     for (uint64_t i = 5; i < n;) {
@@ -4347,6 +4349,14 @@ static uint32_t *spirv_fog_keep_froxels(const uint32_t *w, uint64_t n) {
         i += len;
     }
     free(def);
+    if (found == 1 && vk_diag_enabled()) {
+        static volatile int32_t notes;
+        if (plat_inc32(&notes) <= 16)
+            rt_log("graphics diag: recognized fog preparation shader %016llx; %s",
+                   (unsigned long long)fnv(FNV0, w, (size_t)n * 4),
+                   cull ? "original depth culling retained (lower work, possible fog trails)" : "all froxels retained for temporal stability");
+    }
+    if (cull) return NULL;
     uint32_t *o = found == 1 ? malloc(n * 4) : NULL;
     if (!o) return NULL;
     memcpy(o, w, n * 4);

@@ -626,6 +626,22 @@ static const char *const text_en[UI_TEXT_COUNT] = {
                                    "Standard restores the previous policies. Explicit memory overrides still apply. Restart required.",
     [UI_MENU_MEMORY_STANDARD] = "Standard",
     [UI_MENU_MEMORY_LOW] = "Low memory",
+    [UI_MENU_FOG_CULL] = "Reduce volumetric fog work",
+    [UI_MENU_FOG_CULL_DESC] = "Keeps the game's original depth-based fog culling. Can reduce work in recognized fog passes, "
+                             "but may restore fog trails behind moving objects. Off restores the existing temporal-quality fix. Restart required.",
+    [UI_MENU_COMPAT_GROUPS] = "Compatibility geometry detail",
+    [UI_MENU_COMPAT_GROUPS_DESC] = "Reduced settings limit work per mesh draw on compatibility GPUs. Capping follows task order "
+                                  "and may omit nearby or essential objects. The HUD keeps its resolution. Full restores the previous limit. Restart required.",
+    [UI_MENU_COMPAT_GROUPS_FULL] = "Full (existing limit)",
+    [UI_MENU_COMPAT_GROUPS_REDUCED] = "Reduced",
+    [UI_MENU_COMPAT_GROUPS_MIN] = "Minimum",
+    [UI_MENU_COMPAT_REUSE] = "Reuse completed mesh buffer",
+    [UI_MENU_COMPAT_REUSE_AUTO] = "Auto (low memory)",
+    [UI_MENU_COMPAT_REUSE_DESC] = "Retains one completed geometry buffer, up to 32 MiB, to avoid repeated allocations. "
+                                 "Auto enables this in Low memory mode. Off restores allocation per submission. Restart required.",
+    [UI_MENU_SUBMIT_BATCH] = "Queue submission batching",
+    [UI_MENU_SUBMIT_BATCH_DESC] = "One sends each submission individually. Larger values reduce CPU driver calls. "
+                                "Individual submissions provide an alternative for driver stability and latency. Restart required.",
     [UI_MENU_CHEATS_REBUILD] = "Rebuild the game now",
     [UI_MENU_CHEATS_REBUILD_DESC] = "Some cheats change the game's code and are not built into it: they are new or "
                                     "edited, or their last rebuild failed or was cancelled. Closes the game; the setup "

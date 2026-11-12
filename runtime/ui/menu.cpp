@@ -1107,11 +1107,21 @@ static void tab_screen(float scale) {
     static const char *const memory_values[] = {"standard", "low"};
     const char *memory_names[] = {menu_text(UI_MENU_MEMORY_STANDARD), menu_text(UI_MENU_MEMORY_LOW)};
     opt_choice_list("NX2NAVI_MEMORY_PROFILE", UI_MENU_MEMORY_PROFILE, memory_values, memory_names, 2, UI_MENU_MEMORY_PROFILE_DESC);
+    opt_toggle("NX2NAVI_FOG_CULL", UI_MENU_FOG_CULL, UI_MENU_FOG_CULL_DESC);
+    static const char *const submit_values[] = {"1", "2", "4", "8", "16"};
+    const char *submit_names[] = {"1", "2", "4", "8", "16"};
+    opt_choice_list("NX2NAVI_SUBMIT_BATCH", UI_MENU_SUBMIT_BATCH, submit_values, submit_names, 5, UI_MENU_SUBMIT_BATCH_DESC);
     static const char *const diag_values[] = {"auto", "off", "on", "timed"};
     const char *diag_names[] = {menu_text(UI_MENU_DIAG_AUTO), menu_text(UI_MENU_OFF),
                                 menu_text(UI_MENU_DIAG_HISTORY), menu_text(UI_MENU_DIAG_TIMED)};
     opt_choice_list("NX2NAVI_GRAPHICS_DIAG", UI_MENU_GRAPHICS_DIAG, diag_values, diag_names, 4, UI_MENU_GRAPHICS_DIAG_DESC);
     if (cfg_bool("NX2NAVI_COMPAT_MESH")) {
+        static const char *const group_values[] = {"4096", "256", "64"};
+        const char *group_names[] = {menu_text(UI_MENU_COMPAT_GROUPS_FULL), menu_text(UI_MENU_COMPAT_GROUPS_REDUCED), menu_text(UI_MENU_COMPAT_GROUPS_MIN)};
+        opt_choice_list("NX2NAVI_COMPAT_MESH_GROUPS", UI_MENU_COMPAT_GROUPS, group_values, group_names, 3, UI_MENU_COMPAT_GROUPS_DESC);
+        static const char *const reuse_values[] = {"auto", "off", "on"};
+        const char *reuse_names[] = {menu_text(UI_MENU_COMPAT_REUSE_AUTO), menu_text(UI_MENU_OFF), menu_text(UI_MENU_ON)};
+        opt_choice_list("NX2NAVI_COMPAT_MESH_REUSE", UI_MENU_COMPAT_REUSE, reuse_values, reuse_names, 3, UI_MENU_COMPAT_REUSE_DESC);
         static const char *const batch_values[] = {"8", "auto"};
         const char *batch_names[] = {menu_text(UI_MENU_COMPAT_BATCH_STANDARD), menu_text(UI_MENU_COMPAT_BATCH_LARGE)};
         opt_choice_list("NX2NAVI_COMPAT_MESH_BATCH", UI_MENU_COMPAT_BATCH, batch_values, batch_names, 2, UI_MENU_COMPAT_BATCH_DESC);

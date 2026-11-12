@@ -108,3 +108,8 @@ picture do not need to be reduced to investigate smaller world effects.
 The following [low-memory profile](low-memory-profile.md) adds optional smaller
 allocator/cache policies, safe staging-allocation retries and per-category memory
 totals to the fatal snapshot. Its standard setting preserves the previous policies.
+
+The subsequent [playability pass](playability-pathways.md) records the first world
+GPU timing sample, corrects compatibility allocation-failure labels, adds bounded
+completed-buffer reuse and smaller-batch recovery, and exposes reversible quality
+choices. It also maps compute hashes and captures the first observed scene sooner.

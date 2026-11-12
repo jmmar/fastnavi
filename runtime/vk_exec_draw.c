@@ -253,6 +253,7 @@ void vk_exec_draw_shaders(const GfxShader **vs, const GfxShader **fs) {
 
 // Marks a dispatch about to be recorded (vk.h vk_pass_mark_begin); the caller ends it after the dispatch.
 static VkPassMark *dispatch_mark(VkExec *ex, const GfxShader *cs, uint32_t x, uint32_t y, uint32_t z) {
+    vk_diag_compute(cs, ex->prog ? ex->prog->serial : 0, x, y, z);
     VkPassMark *m = vk_pass_mark_begin(ex->cb, VK_MARK_DISPATCH, ex->fence);
     if (!m) return NULL;
     m->step = ex->mark_dispatches++;
@@ -450,6 +451,7 @@ static void twins_release(VkCtx *c);
 // Releases the stand-ins and the depth twins. The device must be idle; the game path leaves them to process exit like
 // the pipelines.
 void vk_exec_draw_shutdown(void) {
+    vk_mesh_compat_shutdown();
     if (!Z.ready) return;
     VkCtx *c = vk_ctx();
     twins_release(c);
@@ -3427,12 +3429,14 @@ static int pipe_memo_on(void) {
 // the draws issued and skipped since the last line (only when something was skipped). A black screen with draws
 // skipped for "shader failed" or "pipeline failed" points at the translator or the pipeline; draws issued and still
 // nothing on screen point at the shaders' results (NX2NAVI_DUMP).
-enum { SK_DISABLED, SK_SCISSOR, SK_NO_PROGRAM, SK_NO_VERTEX_STAGE, SK_SHADER_PENDING, SK_SHADER_FAILED, SK_DLAA,
+enum { SK_DISABLED, SK_SCISSOR, SK_NO_PROGRAM, SK_NO_VERTEX_STAGE, SK_SHADER_PENDING, SK_SHADER_FAILED,
+       SK_COMPAT_METADATA, SK_COMPAT_BUFFER, SK_COMPAT_PIPELINE, SK_DLAA,
        SK_PIPE_PENDING, SK_PIPE_FAILED, SK_POOL_OFF, SK_COUNT };
 static const char *const sk_names[SK_COUNT] = {
     "rendering disabled (render condition)", "empty scissor", "no program bound",
     "no vertex (or mesh) stage in the program", "shader still translating",
-    "shader failed to translate (see gfx_shader: translation failed)", "replaced by the upscaler",
+    "shader failed to translate (see gfx_shader: translation failed)", "compatibility metadata invalid",
+    "compatibility geometry allocation failed", "compatibility compute pipeline failed", "replaced by the upscaler",
     "pipeline still building", "pipeline could not be created", "uses the texture pools (NX2NAVI_POOL=0)"};
 #define DRAW_STATS_FRAMES 600
 static struct { uint64_t issued[2], skipped[2][SK_COUNT], frame; uint32_t first[2]; } DRS;
@@ -3541,6 +3545,7 @@ static void prog_lead(const prog_t *p, int mesh) {
 // mesh: a mesh draw (op_draw_mesh): the program's mesh and task stages stand in for the vertex stage, and nothing
 // vertex-related (vertex buffers, motion vector bookkeeping of vertex shaders) is bound or noted.
 static int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int mesh) {
+    const int draw_kind = mesh;   // compatibility lowering changes pipeline kind, not the diagnostic draw category
     if (ex->render_disabled) return vk_cond_draws_skip += ex->has_render_cond, draw_skipped(ex, mesh, SK_DISABLED);
     cb_res(ex);
     dummies_init();
@@ -3594,15 +3599,15 @@ static int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int
     if (!vs || (has_fs && !fs) || (has_ts && !ts)) return draw_skipped(ex, mesh, SK_SHADER_FAILED);
     int compat_mesh = mesh && vk_caps.mesh_compute;
     if (compat_mesh) {
-        if (!mesh_compat_generate(ex, vs, ts, &vs, &prim)) return draw_skipped(ex, mesh, SK_SHADER_FAILED);
+        if (!mesh_compat_generate(ex, vs, ts, &vs, &prim)) return draw_skipped(ex, mesh, mc_draw.failure);
         // Geometry generation uses transfer/compute barriers, which end the rendering pass. Its vertex-pulling draw
         // needs the attachments loaded again before graphics state and the indirect draw are recorded.
         vk_exec_pass_begin(ex);
         ts = NULL;
         mesh = 0; // the generated stage is a conventional vertex shader; native mesh draws keep their path
     }
-    if (shader_skipped(vs) || shader_skipped(fs)) return draw_skipped(ex, mesh, SK_POOL_OFF);   // NX2NAVI_SKIP_SHADERS
-    if (vk_dlaa_skip_draw(ex, fs)) return draw_skipped(ex, mesh, SK_DLAA);   // the game's FXAA off, or its scaling replaced by DLSS (vk_dlaa.c)
+    if (shader_skipped(vs) || shader_skipped(fs)) return draw_skipped(ex, draw_kind, SK_POOL_OFF);   // NX2NAVI_SKIP_SHADERS
+    if (vk_dlaa_skip_draw(ex, fs)) return draw_skipped(ex, draw_kind, SK_DLAA);   // the game's FXAA off, or its scaling replaced by DLSS (vk_dlaa.c)
     uint32_t fbl = feedback_prepare(ex, fs);
     VkPipeState s = ex->pipe;
     s.vs = vs, s.fs = fs, s.ts = ts;
@@ -3713,9 +3718,9 @@ static int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int
                    (unsigned long long)vk_diag_shader(vs), (unsigned long long)vk_diag_shader(fs),
                    ex->pass_w, ex->pass_h, waited / 1e6);
     }
-    if (pending) return draw_skipped(ex, mesh, SK_PIPE_PENDING);   // a background worker is building it: skipped until it is ready
-    if (!p || !info) return draw_skipped(ex, mesh, SK_PIPE_FAILED);
-    if (info->pool && !pool_on()) return draw_skipped(ex, mesh, SK_POOL_OFF);
+    if (pending) return draw_skipped(ex, draw_kind, SK_PIPE_PENDING);   // a background worker is building it: skipped until it is ready
+    if (!p || !info) return draw_skipped(ex, draw_kind, SK_PIPE_FAILED);
+    if (info->pool && !pool_on()) return draw_skipped(ex, draw_kind, SK_POOL_OFF);
     bind_pipeline(ex, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
     if (!B.st_valid || memcmp(&B.st, &s, sizeof s)) {
         // Only the dynamic states whose values changed (vk_pipeline_set_dynamic_delta); NX2NAVI_DYN_DELTA=0 records
@@ -3752,7 +3757,7 @@ static int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int
     if (vk_hdr_track) vk_hdr_draw(ex, info);
     vk_exec_oq_draw(ex);
     vk_diag_note("draw-ready", ex->fence, ex->cb, vk_diag_shader(vs), vk_diag_shader(fs), ex->pass_w, ex->pass_h);
-    DRS.issued[mesh]++;
+    DRS.issued[draw_kind]++;
     draw_stats_tick();
     return 1;
 }
@@ -4639,7 +4644,17 @@ static void mesh_compat_draw(VkExec *ex, uint32_t count, uint32_t first, const V
     if (!on) return;
     uint64_t start = vk_diag_enabled() ? plat_now_ns() : 0, batches = 0;
     memset(&mc_draw, 0, sizeof mc_draw);
-    mc_draw.active = 1, mc_draw.count = count, mc_draw.first = first, mc_draw.indirect = arguments != NULL;
+    uint32_t original = count, limit = (uint32_t)cfg_int("NX2NAVI_COMPAT_MESH_GROUPS");
+    if (limit != 64 && limit != 256 && limit != MC_INDIRECT_LIMIT) limit = MC_INDIRECT_LIMIT;
+    static int cap_noted;
+    if (!cap_noted) {
+        cap_noted = 1;
+        rt_log("vk compat: geometry setting %u; 4096 preserves original direct counts and indirect ceiling, reduced settings can omit geometry", limit);
+    }
+    if (limit < MC_INDIRECT_LIMIT && count > limit) count = limit;
+    mc_draw.active = 1, mc_draw.count = count, mc_draw.original_count = original, mc_draw.first = first,
+        mc_draw.indirect = arguments != NULL;
+    vk_diag_note("mesh-window", ex->fence, ex->cb, original, count, first, arguments != NULL);
     if (arguments) mc_draw.arguments = *arguments;
     c0_binst = 0;
     while (mc_draw.base < count) {

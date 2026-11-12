@@ -16,6 +16,7 @@
 #include "host.h"
 #include "nvn_api.h"
 #include "vk.h"
+#include "vk_diag.h"
 #include "platform/platform.h"
 
 #define WEAK __attribute__((weak))
@@ -93,8 +94,11 @@ int vk_sync_wb_split(void) {
 
 static void hold_flush_locked(VkCtx *c) {
     if (!H.n) return;
+    vk_diag_note("queue-submit", H.last, VK_NULL_HANDLE, (uint64_t)H.n,
+                 __atomic_load_n(&queued_v, __ATOMIC_ACQUIRE), vk_sync_fence_done(), 0);
     VkResult r = vkQueueSubmit2(c->gfx_queue, (uint32_t)H.n, H.si, VK_NULL_HANDLE);
     if (r != VK_SUCCESS) {
+        vk_diag_note("queue-failed", H.last, VK_NULL_HANDLE, (uint64_t)H.n, (uint64_t)(int64_t)r, 0, 0);
         vk_device_fault_report(r);
         rt_fatal("vk: vkQueueSubmit2 of %d held submissions up to value %llu failed (%d)", H.n,
                  (unsigned long long)H.last, (int)r);
@@ -715,6 +719,13 @@ int vk_sync_exec_wait(uint64_t value, uint64_t timeout_ns) {
 uint64_t vk_sync_fence_done(void) { return __atomic_load_n(&done, __ATOMIC_ACQUIRE); }
 
 uint64_t vk_sync_issued(void) { return __atomic_load_n(&issued, __ATOMIC_ACQUIRE); }
+
+void vk_sync_diagnostic(void) {
+    rt_log("graphics queue: logical issued %llu, handed to queue %llu, completed side effects %llu, held submissions %d "
+           "(CPU snapshots; no new GPU query)", (unsigned long long)vk_sync_issued(),
+           (unsigned long long)__atomic_load_n(&queued_v, __ATOMIC_ACQUIRE),
+           (unsigned long long)vk_sync_fence_done(), (int)__atomic_load_n(&held_n, __ATOMIC_ACQUIRE));
+}
 
 void vk_sync_finish(void) {
     vk_sync_start();
