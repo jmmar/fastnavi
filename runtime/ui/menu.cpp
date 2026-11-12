@@ -62,6 +62,9 @@ void vk_queue_unlock(void);
 void res_sizes(unsigned out[2], unsigned scene[2]);
 int res_adjustable(void);
 int wide_available(void);
+void wide_picture(unsigned *w, unsigned *h);
+int vk_scene_size(unsigned *w, unsigned *h);
+int ov_movie_source_size(unsigned *w, unsigned *h);
 const char *const *vk_color_preset(const char *name);
 int vk_hdr_wanted(void);
 int vk_hdr_active(void);
@@ -1053,7 +1056,7 @@ static void row_framegen(void) {
 static void row_game_res(void) {
     static const char *const values[] = {"720", "1080", "1440", "1800", "2160", "2880", "window"};
     const char *names[] = {"720p", "1080p", "1440p", "1800p", "2160p (4K)", "2880p (5K)", menu_text(UI_MENU_GAME_RES_NATIVE)};
-    opt_choice_list("NX2NAVI_GAME_RES", UI_MENU_GAME_RES, values, names, 7, UI_MENU_GAME_RES_DESC);
+    opt_choice_list("NX2NAVI_GAME_RES", UI_MENU_PICTURE_RES, values, names, 7, UI_MENU_PICTURE_RES_DESC);
 }
 
 static void row_world_res(void) {
@@ -1096,6 +1099,10 @@ static void tab_screen(float scale) {
     const char *aniso_names[] = {menu_text(UI_MENU_ANISO_GAME), "2x", "4x", "8x", "16x"};
     opt_choice_list("NX2NAVI_ANISO", UI_MENU_ANISO, aniso, aniso_names, 5, UI_MENU_ANISO_DESC);
     row_texture_detail();
+    opt_toggle("NX2NAVI_FXAA", UI_MENU_FXAA, UI_MENU_FXAA_DESC);
+    opt_group(UI_MENU_MOVIES);
+    opt_toggle("NX2NAVI_MOVIE_DEBAND", UI_MENU_MOVIE_DEBAND, UI_MENU_MOVIE_DEBAND_DESC);
+    opt_toggle("NX2NAVI_MOVIE_GRAIN", UI_MENU_MOVIE_GRAIN, UI_MENU_MOVIE_GRAIN_DESC);
     opt_end();
 }
 
@@ -1663,9 +1670,22 @@ static void perf_picture(const MenuTarget *t, PerfPanel *p) {
     if (!strcmp(fg, "dlss") && vk_dlssg_active())   // its multiplier as set, clamped to what this GPU allows
         snprintf(v[9], sizeof v[9], "NVIDIA DLSS %dx",
                  vk_dlssg_multiplier_of(cfg_value("NX2NAVI_FRAMEGEN_MULTIPLIER"), vk_dlssg_multiplier_max(nullptr), nullptr));
-    // The 3D scene's size is known only where resolution.c sets it (the builds with its patch sets); Ocarina sizes its
-    // own scene dynamically and res_sizes would report a fixed 1600x900, so the line is left out
     p->scene_known = res_adjustable() != 0;
+    if (wide_available()) {
+        // This is measured from the G-buffer, not inferred from the requested world setting. A video-only frame
+        // has no observed world target and leaves this row out.
+        p->scene_known = vk_scene_size(&scene[0], &scene[1]) != 0;
+        if (p->scene_known)
+            snprintf(v[2], sizeof v[2], menu_text(UI_MENU_OV_FMT_SCENE), scene[0], scene[1],
+                     scene[0] * 100.0 / (t->image_w > 0 ? t->image_w : 1));
+        unsigned pw, ph;
+        wide_picture(&pw, &ph);
+        snprintf(v[7], sizeof v[7], "%up", ph);   // active, even while another picture size awaits restart
+    }
+    unsigned mw, mh;
+    v[10][0] = 0;
+    if (ov_movie_source_size(&mw, &mh))
+        snprintf(v[10], sizeof v[10], menu_text(UI_MENU_OV_FMT_SIZE), mw, mh);
 }
 
 // The full panel (ui/perf_panel.cpp draws it in the menu's look): the numbers of this frame.

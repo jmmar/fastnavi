@@ -1,0 +1,33 @@
+# Additional opt-in profile for the tested Gen11 / N6005 compatibility path.
+# Merge these keys into your existing nx2navi.ini. Keep input bindings, paths and other preferences.
+# Requires the new runtime. This is a starting point for manual evaluation, not a frame-rate guarantee.
+
+[compatibility]
+compat_bda32 = 1
+compat_mesh = 1
+
+[display]
+game_aspect = 16:9
+game_res = 720
+world_res = 240
+upscaler = nearest
+dlaa = 0
+framegen = off
+fxaa = 0
+texture_detail = low
+aniso = game
+shadow_scale = 1
+contact_shadows = 0
+pcss = 0
+
+[movies]
+# The movie remains source-resolution AV1. Removing CPU filters is the main video optimization in this pass.
+movie_deband = 0
+movie_grain = 0
+
+[performance]
+astc_bc = 1
+
+[frame rate]
+fps_limit = 30
+# Keep the movie timing override at its default. Lowering movie_fps changes scripted movie event timing.

@@ -80,7 +80,7 @@ TOOLS = ('make_game.py', 'nup.py', 'romfs_index.py', 'check_content.py', 'hostme
          'shader_census.py', 'shader_list.py', 'zstd_compat.py', 'pad_prompts.py', 'prompt_art.py', 'button_icons.py', 'romfs_check.py',
          'pack_shader_cache.py')
 TOP = ('LICENSE', 'LICENSE-ADDITIONS', 'THIRD_PARTY_NOTICES.md', 'nx2navi.ini.example',
-       'nx2navi-retro.ini.example', 'nx2navi-intel-compat.ini.example')
+       'nx2navi-retro.ini.example', 'nx2navi-intel-compat.ini.example', 'nx2navi-minimum.ini.example')
 SKIP_DIRS = {'__pycache__', '.pytest_cache', 'native'}
 SKIP_SUFFIXES = {'.o', '.obj', '.pyc', '.exe', '.dll', '.a', '.lib'}
 TCLTK_FILES = ('_tkinter.pyd', 'tcl90.dll', 'tcl9tk90.dll', 'zlib1.dll', 'libtommath.dll')

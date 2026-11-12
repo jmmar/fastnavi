@@ -89,6 +89,13 @@ static int movies_live;   // decoders playing (Video.live); frame_rate.c movie_c
 
 int ov_movie_live(void) { return __atomic_load_n(&movies_live, __ATOMIC_RELAXED) > 0; }
 
+static uint64_t movie_source_size;
+int ov_movie_source_size(unsigned *w, unsigned *h) {
+    uint64_t size = __atomic_load_n(&movie_source_size, __ATOMIC_RELAXED);
+    *w = (unsigned)size, *h = (unsigned)(size >> 32);
+    return ov_movie_live() && *w && *h;
+}
+
 static void set_live(Video *v, int live) {   // the guest's decode and acquire threads may race here
     if (__atomic_exchange_n(&v->live, live, __ATOMIC_RELAXED) != live)
         __atomic_add_fetch(&movies_live, live ? 1 : -1, __ATOMIC_RELAXED);
@@ -311,6 +318,7 @@ static void movie_oom_log(int w, int h) {
 // One dav1d picture (8- or 10-bit 4:2:0) -> NV12 with 8-bit samples, and its RGBA; decoder thread
 static int make_picture(const Dav1dPicture *pic, Picture *p) {
     int w = pic->p.w, h = pic->p.h, hbd = pic->p.bpc > 8, sh = pic->p.bpc - 8;
+    __atomic_store_n(&movie_source_size, (uint64_t)(unsigned)h << 32 | (unsigned)w, __ATOMIC_RELAXED);
     if (pic->p.layout != DAV1D_PIXEL_LAYOUT_I420) {
         static volatile int32_t logged;
         if (!plat_xchg32(&logged, 1)) rt_log("movie: picture layout %d is not 4:2:0: skipped", pic->p.layout);
@@ -336,18 +344,18 @@ static int make_picture(const Dav1dPicture *pic, Picture *p) {
         return 0;
     }
     const ptrdiff_t ys = pic->stride[0], cs = pic->stride[1];
-    static int deband_on = -1;   // NX2NAVI_MOVIE_DEBAND=0 keeps the decoded planes
-    if (deband_on < 0) {
-        const char *e = cfg_get("NX2NAVI_MOVIE_DEBAND");
-        deband_on = !(e && !strcmp(e, "0"));
-    }
+    int deband_on = cfg_bool("NX2NAVI_MOVIE_DEBAND");
     if (deband_on && !hbd && !rgba) {
         // The usual case (8-bit, debanded, the game converts the frame): one pass per stripe debands the decoder's own
         // planes and writes the dithered NV12 rows. Reading the decoder's planes instead of an NV12 copy of them gives
         // the same samples, and nothing reads the frame while it is written, so each stripe finishes its rows alone:
         // one round of threads per frame instead of two, and no single-threaded copy before it.
         uint16_t *Y16 = malloc((size_t)w * h * 2), *U16 = malloc((size_t)w * h / 2), *V16 = malloc((size_t)w * h / 2);
-        if (!Y16 || !U16 || !V16) rt_fatal("movie: out of memory for a %dx%d frame", w, h);
+        if (!Y16 || !U16 || !V16) {
+            free(Y16), free(U16), free(V16), free(o);
+            movie_oom_log(w, h);
+            return 0;
+        }
         Stripe base = {2, 0, 0, w, h, o, Y16, U16, V16, NULL, pic->data[0], pic->data[1], pic->data[2], ys, cs};
         run_stripes(base);
         free(Y16), free(U16), free(V16);
@@ -367,6 +375,12 @@ static int make_picture(const Dav1dPicture *pic, Picture *p) {
             uv[(size_t)y * w + 2 * x + 1] = hbd ? (uint8_t)(((const uint16_t *)vv)[x] >> sh) : vv[x];
         }
     }
+    // Fast mode keeps the decoder's samples. Do not allocate the high-precision debanding planes or launch stripe
+    // workers when neither debanding nor the optional RGBA overlay needs them.
+    if (!deband_on && !rgba) {
+        *p = (Picture){o, NULL, w, h, pic->m.timestamp, 0};
+        return 1;
+    }
     // debanded planes (NX2NAVI_MOVIE_DEBAND=0 keeps the decoded ones), then the overlay's RGBA or the dithered NV12
     {
         uint16_t *Y16 = malloc((size_t)w * h * 2), *U16 = malloc((size_t)w * h / 2), *V16 = malloc((size_t)w * h / 2);
@@ -378,10 +392,6 @@ static int make_picture(const Dav1dPicture *pic, Picture *p) {
         Stripe base = {0, 0, 0, w, h, o, Y16, U16, V16, rgba};
         if (deband_on) {
             run_stripes(base);
-        } else if (!rgba) {
-            free(Y16), free(U16), free(V16);
-            *p = (Picture){o, rgba, w, h, pic->m.timestamp, 0};
-            return 1;
         } else {
             for (size_t i = 0; i < (size_t)w * h; i++) Y16[i] = (uint16_t)(o[i] * 16);
             for (size_t i = 0; i < (size_t)w * h / 4; i++) U16[i] = (uint16_t)(uv[2 * i] * 16), V16[i] = (uint16_t)(uv[2 * i + 1] * 16);
@@ -589,6 +599,7 @@ static void ov_initialize(Cpu *c) {
     finalize(v);
     set_live(v, 1);
     v->clock_on = 0;
+    __atomic_store_n(&movie_source_size, 0, __ATOMIC_RELAXED);
     Dav1dSettings s;
     dav1d_default_settings(&s);
     // Frame threading on (dav1d picks the delay): heavy stretches of the title movie took longer than a frame to
@@ -596,6 +607,9 @@ static void ov_initialize(Cpu *c) {
     // costs nothing here, as decoding runs ahead on its own thread; end of stream drains the delayed pictures.
     s.n_threads = 8;
     s.max_frame_delay = 0;
+    s.apply_grain = cfg_bool("NX2NAVI_MOVIE_GRAIN");
+    rt_log("movie: CPU debanding %s (live), AV1 grain %s; video dimensions follow the stream, independently of world_res",
+           cfg_bool("NX2NAVI_MOVIE_DEBAND") ? "on" : "off", s.apply_grain ? "on" : "off");
     int r = dav1d_open(&v->dav1d, &s);
     if (r < 0) rt_fatal("movie: dav1d_open failed (%d)", r);
     v->thread = plat_thread_new(decoder_thread, v, "movie decoder");

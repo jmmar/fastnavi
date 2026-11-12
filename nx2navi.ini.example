@@ -353,9 +353,15 @@
 # Ocarina's world height, independent of the picture and HUD: game (the usual scene scale), 240, 360, 480 or 720.
 # With game_res = 720 and world_res = 480, the intended result is a 480-line world under a 720p HUD. Width follows
 # the aspect ratio and engine alignment. DLSS and FSR 3.1 take precedence and use their mode's scale instead.
-# A fixed height takes precedence over the legacy scene_share override. Read at start; lower heights need in-game
-# validation. The fixed scale starts after the first 120 presents while the game's resolution controller initializes.
+# A fixed height takes precedence over the legacy scene_share override. Changes live, using the active picture size
+# even if game_res has a pending restart. The fixed scale starts after the first 120 presents while the game's
+# resolution controller initializes. The full overlay reports the observed G-buffer size, not the requested height.
 # world_res = game
+# Prerecorded AV1 movies have a separate source resolution. Their optional CPU gradient filter can be expensive.
+# movie_deband = 0 removes it live. movie_grain = 0 removes optional grain synthesis after decoder recreation;
+# restart for consistent application. Neither setting changes timestamps or lowers the encoded stream dimensions.
+# movie_deband = 1
+# movie_grain = 1
 # 3D render scale: the scene's size relative to the game resolution, game (5/6, the game's own 1600x900 at 1080p) or
 # a percentage (25 to 400, at most 4096 pixels a side); above 100 supersamples the scene (anti-aliasing). Read at start.
 # render_scale = game

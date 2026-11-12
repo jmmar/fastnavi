@@ -1,6 +1,6 @@
 # Experimental Intel compatibility starting configuration. Merge into nx2navi.ini beside ocarina.exe.
 # Requires the newly built translator AND rebuilt runtime; an older setup does not include this work.
-# No game execution, shader preparation or unit tests have validated these paths.
+# The player has run the compatibility path on Gen11; further runtime validation is still required.
 
 [compatibility]
 compat_bda32 = 1
@@ -18,6 +18,10 @@ texture_detail = low
 shadow_scale = 1
 contact_shadows = 0
 pcss = 0
+
+[movies]
+movie_deband = 0
+movie_grain = 0
 
 [performance]
 astc_bc = 1

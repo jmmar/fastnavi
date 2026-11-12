@@ -103,21 +103,19 @@ static double scene_share(void) {
     if (plain < 0) {
         const char *e = cfg_get("NX2NAVI_SCENE_SHARE");   // 0: the game's dynamic resolution, as with no share at all
         plain = e && *e ? atof(e) : PLAIN_SHARE;
-        // Explicit world height takes precedence over the legacy share, but temporal upscalers below still use
-        // their own ratios. Both picture and world heights are restart settings, so keep the ratio for this run.
-        const char *world = cfg_value("NX2NAVI_WORLD_RES");
-        if (strcmp(world, "game")) {
-            int h = atoi(world);
-            unsigned picture = picture_height();
-            if (h == 240 || h == 360 || h == 480 || h == 720) {
-                plain = (double)h / picture;
-                rt_log("widescreen: world height requested %d, picture height %u (temporal upscaling takes precedence)",
-                       h, picture);
-            } else rt_log("widescreen: invalid world_res=%s; using scene_share", world);
-        }
     }
     double s = dlss_share();
-    return s > 0 ? s : plain;
+    if (s > 0) return s;
+    // World height changes live; the composed picture keeps its startup size until a restart. A pending picture
+    // setting must not change this ratio against a size the game has not allocated yet.
+    const char *world = cfg_value("NX2NAVI_WORLD_RES");
+    int h = atoi(world);
+    if (h == 240 || h == 360 || h == 480 || h == 720) {
+        unsigned w, picture;
+        wide_picture(&w, &picture);
+        return (double)h / picture;
+    }
+    return plain;
 }
 
 // The game turns the scale at +240 into a scene size against its own 1440-line picture while the picture is taller
@@ -140,7 +138,9 @@ void wide_present(void) {
         if (s <= 0 && rt_patch_enabled(set)) rt_patch_switch(set, 0);
         else if (rt_patch_enabled(set)) rt_log("widescreen: render scale %.0f%% of the picture", s * 100);
     }
-    if (++presents == RES_FIXED_AFTER && scene_share() > 0) {
+    if (presents < RES_FIXED_AFTER) presents++;
+    // A live change from dynamic resolution back to a fixed height also needs to enable the patch again.
+    if (presents >= RES_FIXED_AFTER && !rt_patch_enabled(set) && scene_share() > 0) {
         rt_patch_switch(set, 1);
         rt_log("widescreen: render scale %.0f%% of the picture (the game's dynamic resolution off)", scene_share() * 100);
     }

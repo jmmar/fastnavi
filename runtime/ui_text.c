@@ -590,9 +590,22 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_UPSCALER_NEAREST] = "Nearest (pixelated)",
     [UI_MENU_WORLD_RES] = "World resolution",
     [UI_MENU_WORLD_RES_DESC] = "Height of the 3D world before the HUD is drawn. Lower uses less GPU power. "
-                               "The HUD keeps the game picture's resolution. Takes effect after restart.",
+                               "The HUD keeps the picture's resolution. Changes live after startup; the observed scene size "
+                               "appears in the full performance overlay. Prerecorded movies have their own resolution.",
     [UI_MENU_WORLD_RES_GAME] = "Game / scene scale",
     [UI_MENU_WORLD_RES_TEMPORAL] = "Choose bilinear, nearest or FSR 1 scaling to set a fixed world resolution.",
+    [UI_MENU_PICTURE_RES] = "HUD / picture resolution",
+    [UI_MENU_PICTURE_RES_DESC] = "Resolution of the composed game picture, including HUD and menus. "
+                                "World resolution controls the 3D scene separately. This picture size changes after restart.",
+    [UI_MENU_MOVIES] = "Prerecorded cutscenes",
+    [UI_MENU_MOVIE_DEBAND] = "Cutscene gradient smoothing",
+    [UI_MENU_MOVIE_DEBAND_DESC] = "Smooths colour bands with a costly CPU filter. Turn off for faster video conversion "
+                                 "and fewer temporary allocations. Applies to new frames immediately; keeps timing and HUD intact. "
+                                 "Does not change the encoded video's resolution or simplify scenes rendered by the game.",
+    [UI_MENU_MOVIE_GRAIN] = "Cutscene film grain",
+    [UI_MENU_MOVIE_GRAIN_DESC] = "Allows AV1 grain synthesis when the video contains grain. Off removes that optional decoder work. "
+                                "Takes effect when the decoder is recreated; restart to apply consistently.",
+    [UI_MENU_MOVIE_SOURCE] = "Movie source",
     [UI_MENU_CHEATS_REBUILD] = "Rebuild the game now",
     [UI_MENU_CHEATS_REBUILD_DESC] = "Some cheats change the game's code and are not built into it: they are new or "
                                     "edited, or their last rebuild failed or was cancelled. Closes the game; the setup "

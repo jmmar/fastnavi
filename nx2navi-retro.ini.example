@@ -1,6 +1,6 @@
 # Opt-in retro starting configuration for the Ocarina build on the retro-low-spec branch.
 # Merge these keys into nx2navi.ini beside the built executable, keeping your other preferences.
-# Requires a rebuilt executable. Source inspection only: no build or runtime validation performed.
+# Requires a rebuilt executable. Runtime validation is performed by the player.
 # The monitor mode and fullscreen window dimensions are not changed by these internal sizes.
 
 [display]
@@ -22,6 +22,11 @@ pcss = 0
 # 480 -> 720 is 1.5x, so pixel sizes are uneven. All are accepted retro presentations.
 # The existing FXAA switch may preserve smoothing in a required scaling draw.
 # Grass, LOD distances, volumetric fog, bloom and depth of field remain unchanged in this pass.
+
+[movies]
+# Keep video timing, remove optional CPU filters. The encoded stream is still decoded at its source dimensions.
+movie_deband = 0
+movie_grain = 0
 
 [performance]
 astc_bc = 1
