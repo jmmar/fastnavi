@@ -418,13 +418,16 @@ static int create_device(void) {
         if (!vk_caps_gpl(&c->gpl, &gp)) { *gpl_link = NULL; n_ext -= 2; }
     }
     const VkPhysicalDeviceFeatures *h = &c->f2.features;
+    const char *gpa = cfg_get("NX2NAVI_GPA");
     const char *miss = NULL;
     if (!c->f12.timelineSemaphore) miss = "timelineSemaphore";
     else if (!c->f13.dynamicRendering) miss = "dynamicRendering";
     else if (!c->f13.synchronization2) miss = "synchronization2";
     else if (!h->shaderStorageImageWriteWithoutFormat) miss = "shaderStorageImageWriteWithoutFormat";
     else if (!c->clip.depthClipControl) miss = "depthClipControl";
-    else if (!h->shaderInt64) miss = "shaderInt64";
+    else if (!h->shaderInt64 && !vk_caps.bda32) miss = "shaderInt64 (experimental compat_bda32 path available)";
+    else if (vk_caps.bda32 && !c->f12.bufferDeviceAddress) miss = "bufferDeviceAddress (required by compat_bda32)";
+    else if (vk_caps.bda32 && gpa && !strcmp(gpa, "0")) miss = "device address table (compat_bda32 requires gpa enabled)";
     else if (!h->samplerAnisotropy) miss = "samplerAnisotropy";
     else if (!h->independentBlend) miss = "independentBlend";
     else if (!h->geometryShader) miss = "geometryShader";
@@ -448,6 +451,8 @@ static int create_device(void) {
         if (!c->mesh.meshShader || !c->mesh.taskShader) g_vk.has_mesh_shader = 0;
         rt_log("vk: mesh shaders: %s", g_vk.has_mesh_shader ? "VK_EXT_mesh_shader" : "not supported (task/mesh draws are skipped)");
     }   // vkGetDeviceFaultInfoEXT needs the feature, not just the extension
+    if (vk_caps.bda32 && !g_vk.has_mesh_shader && !vk_caps.mesh_compute)
+        rt_log("vk compat: address layer only; mesh/task geometry is still unavailable on this device");
     if (g_vk.has_maximal_reconvergence && !c->mrc.shaderMaximalReconvergence) g_vk.has_maximal_reconvergence = 0;
     if (g_vk.has_pipeline_binary && !(c->pbin.pipelineBinaries && c->m5.maintenance5)) g_vk.has_pipeline_binary = 0;
     g_vk.has_buffer_device_address = c->f12.bufferDeviceAddress;

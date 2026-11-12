@@ -55,10 +55,9 @@ static double wanted_ratio(void) {
     return (double)w / h;
 }
 
-// NX2NAVI_GAME_RES: the picture's height, 1080 up to 4320 ("window": the window's height, or the monitor's in
-// fullscreen, never below the game's 1440). 1080 is the one height below the game's own: a lighter picture for slower
-// GPUs, whose scene the game sizes against that picture itself, as the comment at scale_k says.
-#define PICTURE_MIN_H 1080
+// NX2NAVI_GAME_RES: the composed picture's height, 720 up to 4320. "window" keeps at least the game's 1440 lines.
+// The scene has its own size; lowering this picture also lowers the HUD and composition targets.
+#define PICTURE_MIN_H 720
 static unsigned picture_height(void) {
     const char *s = cfg_value("NX2NAVI_GAME_RES");
     int w = 0, h = GAME_H, min = PICTURE_MIN_H;
@@ -104,6 +103,18 @@ static double scene_share(void) {
     if (plain < 0) {
         const char *e = cfg_get("NX2NAVI_SCENE_SHARE");   // 0: the game's dynamic resolution, as with no share at all
         plain = e && *e ? atof(e) : PLAIN_SHARE;
+        // Explicit world height takes precedence over the legacy share, but temporal upscalers below still use
+        // their own ratios. Both picture and world heights are restart settings, so keep the ratio for this run.
+        const char *world = cfg_value("NX2NAVI_WORLD_RES");
+        if (strcmp(world, "game")) {
+            int h = atoi(world);
+            unsigned picture = picture_height();
+            if (h == 240 || h == 360 || h == 480 || h == 720) {
+                plain = (double)h / picture;
+                rt_log("widescreen: world height requested %d, picture height %u (temporal upscaling takes precedence)",
+                       h, picture);
+            } else rt_log("widescreen: invalid world_res=%s; using scene_share", world);
+        }
     }
     double s = dlss_share();
     return s > 0 ? s : plain;
@@ -111,7 +122,7 @@ static double scene_share(void) {
 
 // The game turns the scale at +240 into a scene size against its own 1440-line picture while the picture is taller
 // (a 2160-line picture at 1.0 gave a 1440-line scene), so the share goes there times the picture's height over 1440.
-// Under a 1080-line picture the game measures against that picture instead (a share of 1.0 times 1080/1440 gave an
+// Under a smaller picture the game is expected to measure against that picture instead (at 1080, 1.0 times 1080/1440 gave an
 // 810-line scene, three quarters of the picture), so there the share goes in as it is: wide_init sets the factor.
 static double scale_k = 1.0;
 

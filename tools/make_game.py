@@ -1543,8 +1543,10 @@ def step_shaders(out, update=False):
            '--exefs', str(out / 'exefs'), '--no-list', '--exe', EXE_NAME]
     rc = shader_run(cmd)
     if rc:
-        fail('preparing the shaders failed (the lines above say why); the game still runs, compiling shaders as it '
-             'meets them. Run the build again to retry this step')
+        fail('preparing the shaders failed (the lines above say why). If Vulkan initialized successfully, the game '
+             'may still run and compile shaders as it meets them. Missing required GPU features also prevent the '
+             'game from rendering; retrying the build does not resolve those. Run the build again after resolving '
+             'the reported cause to retry this step')
     for seed in ('seed-programs.bin', 'seed-answers.bin'):   # translated now: the shader cache holds them
         (out / seed).unlink(missing_ok=True)
     pack_shader_cache(out)

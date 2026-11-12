@@ -10,6 +10,8 @@
     <RyuSrc Condition="'$(RyuSrc)' == ''">$(MSBuildThisFileDirectory)../vendor/ryujinx</RyuSrc>
   </PropertyGroup>
   <ItemGroup>
+    <!-- These sources are compiled inside the shader assembly, copied there by build_xlate.py. -->
+    <Compile Remove="compat/**/*.cs" />
     <ProjectReference Include="$(RyuSrc)/src/Ryujinx.Graphics.Shader/Ryujinx.Graphics.Shader.csproj" />
     <ProjectReference Include="$(RyuSrc)/src/Ryujinx.Common/Ryujinx.Common.csproj" />
   </ItemGroup>

@@ -1,0 +1,26 @@
+# Experimental Intel compatibility starting configuration. Merge into nx2navi.ini beside ocarina.exe.
+# Requires the newly built translator AND rebuilt runtime; an older setup does not include this work.
+# No game execution, shader preparation or unit tests have validated these paths.
+
+[compatibility]
+compat_bda32 = 1
+compat_mesh = 1
+
+[display]
+game_aspect = 16:9
+game_res = 720
+world_res = 360
+upscaler = nearest
+dlaa = 0
+framegen = off
+fxaa = 0
+texture_detail = low
+shadow_scale = 1
+contact_shadows = 0
+pcss = 0
+
+[performance]
+astc_bc = 1
+
+[frame rate]
+fps_limit = 30

@@ -129,6 +129,8 @@ struct GfxShader {
                                                            // (4 bits per target, the SPH omap); 0 unknown (older translations)
     uint8_t carried;                                       // 1 + the previous identity (C.prev) that translated it; 0 the
                                                            // current translator
+    GfxMeshCompute mesh_compute;
+    int mesh_compute_loaded;
 };
 
 static PlatMutex cache_lock = PLAT_MUTEX_INIT;                  // memory cache
@@ -163,6 +165,8 @@ static char xlate_exe[PATH_CAP];
 static uint8_t xlate_id[32];                               // translator identity (see the keys at the top)
 static uint8_t xlate_base[32];                             // the same before gfx_shader_set_host mixes in host options
 static int host_f64 = 1, host_zero_locals, host_bda, host_set;                         // gfx_shader_set_host
+static int host_bda32;                                     // opt-in compatibility address generator
+static int host_mesh_compute;
 static uint32_t host_sbuf, host_sg[3] = {32, 32, 32}, host_gather;
 static PlatOnce paths_once = PLAT_ONCE_INIT;
 
@@ -386,12 +390,14 @@ static void paths(void) { plat_once(&paths_once, init_paths, NULL); }
 // defaults, which are not mixed in.
 static int host_text(char *t) {
     if (host_f64 && !host_sbuf && host_sg[0] == 32 && host_sg[1] == 32 && host_sg[2] == 32 && !host_gather &&
-        !host_zero_locals && !host_bda)
+        !host_zero_locals && !host_bda && !host_bda32 && !host_mesh_compute)
         return 0;
     int n = snprintf(t, 96, "TKHO f64=%d sbuf=%u sg=%u,%u,%u", host_f64, host_sbuf, host_sg[0], host_sg[1], host_sg[2]);
     if (host_gather) n += snprintf(t + n, (size_t)(96 - n), " gather=%u", host_gather);
     if (host_zero_locals) n += snprintf(t + n, (size_t)(96 - n), " zero_locals");
     if (host_bda) n += snprintf(t + n, (size_t)(96 - n), " bda");
+    if (host_bda32) n += snprintf(t + n, (size_t)(96 - n), " bda32");
+    if (host_mesh_compute) n += snprintf(t + n, (size_t)(96 - n), " mc1");
     return n;
 }
 
@@ -410,6 +416,9 @@ static void host_mix(const uint8_t base[32], uint8_t out[32]) {
 // Host answers (vk_caps.c, at device creation, before any translation). Answers other than the defaults (Float64,
 // exact storage offsets, 32 lanes, no gather bias, undefined locals) are mixed into the translator identity, so they
 // get their own cache keys. The previous identities of identities.txt get the same options mixed in (carry).
+void gfx_shader_set_bda32(int on) { if (!host_set) host_bda32 = on != 0; }
+void gfx_shader_set_mesh_compute(int on) { if (!host_set) host_mesh_compute = on != 0; }
+
 void gfx_shader_set_host(int float64, uint32_t sbuf_align, const uint32_t subgroup[3], uint32_t gather_bits, int zero_locals,
                          int bda) {
     paths();
@@ -686,6 +695,8 @@ static GfxShader *mem_find(const uint8_t key[32]) {
 }
 
 static void shader_free(GfxShader *s) {
+    if (s->mesh_compute.compute) shader_free((GfxShader *)s->mesh_compute.compute);
+    if (s->mesh_compute.vertex) shader_free((GfxShader *)s->mesh_compute.vertex);
     for (int k = 0; k < GFX_RES_KINDS; k++) free(s->res[k]);
     free(s->spirv), free(s->reflection), free(s);
 }
@@ -1197,8 +1208,69 @@ static void reflect(GfxShader *s) {
     patch_txd_transpose(s);
 }
 
-// ---- use masks (see the cache key at the top)
+// ---- optional mesh compute companion shaders
+const GfxMeshCompute *gfx_shader_mesh_compute(const GfxShader *shader) {
+    if (!shader || (shader->stage != GFX_STAGE_MS && shader->stage != GFX_STAGE_TS)) return NULL;
+    static PlatMutex lock = PLAT_MUTEX_INIT;
+    plat_mutex_lock(&lock);
+    GfxShader *s = (GfxShader *)shader;
+    if (!s->mesh_compute_loaded) {
+        s->mesh_compute_loaded = 1;
+        const char *js = s->reflection, *end = js + s->reflection_size;
+        GfxMeshCompute *m = &s->mesh_compute;
+        m->abi = (uint32_t)json_int(js, end, "compat_mesh_abi", 0);
+        if (m->abi == 1) {
+            m->threads = (uint32_t)json_int(js, end, "compat_mesh_threads", 0);
+            m->payload = (uint32_t)json_int(js, end, "compat_mesh_payload", 0);
+            m->maxp = (uint32_t)json_int(js, end, "compat_mesh_maxp", 0);
+            m->ipp = (uint32_t)json_int(js, end, "compat_mesh_ipp", 0);
+            m->task = (uint32_t)json_int(js, end, "compat_mesh_task", 0);
+            m->stride = (uint32_t)json_int(js, end, "compat_mesh_stride", 0);
+            char *copy = strdup(js);
+            if (copy) {
+                char *stage = (char *)json_key(copy, copy + strlen(copy), "stage");
+                if (stage && stage[0] == '"' && stage[3] == '"') {
+                    stage[1] = 'c', stage[2] = 's';
+                    m->compute = gfx_shader_own(s->spirv, s->words, copy);
+                }
+                free(copy);
+            }
+            const char *array = json_key(js, end, "compat_mesh_vertex");
+            if (s->stage == GFX_STAGE_MS && array && *array == '[') {
+                size_t count = 0, capacity = 1024;
+                uint32_t *code = malloc(capacity * 4);
+                const char *p = array + 1;
+                while (code && p < end && count < 1048576) {
+                    while (p < end && (*p == ' ' || *p == '\r' || *p == '\n' || *p == '\t' || *p == ',')) p++;
+                    if (p == end || *p == ']') break;
+                    char *next;
+                    unsigned long value = strtoul(p, &next, 10);
+                    if (next == p) break;
+                    if (count == capacity) {
+                        capacity *= 2;
+                        uint32_t *grown = realloc(code, capacity * 4);
+                        if (!grown) { free(code); code = NULL; break; }
+                        code = grown;
+                    }
+                    code[count++] = (uint32_t)value;
+                    p = next;
+                }
+                if (code && p < end && *p == ']')
+                    m->vertex = gfx_shader_own(code, count,
+                        "{\"stage\":\"vs\",\"cbufs\":[],\"sbufs\":[{\"binding\":1,\"slot\":-1,\"cb_slot\":-2,\"flags\":0}],"
+                        "\"textures\":[],\"images\":[]}");
+                free(code);
+            }
+        }
+    }
+    const GfxMeshCompute *m = s->mesh_compute.abi == 1 && s->mesh_compute.compute &&
+        (s->stage == GFX_STAGE_TS || s->mesh_compute.vertex) ? &s->mesh_compute : NULL;
+    plat_mutex_unlock(&lock);
+    return m;
+}
 
+
+// ---- use masks (see the cache key at the top)
 // The slots of the int array `"name": [...]` below 32 as a mask.
 static uint32_t json_slot_mask(const char *js, const char *name) {
     const char *end = js + strlen(js), *p = json_key(js, end, name);
@@ -1545,6 +1617,8 @@ static size_t build_request(char *o0, const char *hex, const char *stage, const 
     if (host_gather) o += sprintf(o, ",\"gather_bias\":%u", host_gather);
     if (host_zero_locals) o += sprintf(o, ",\"zero_locals\":true");
     if (host_bda) o += sprintf(o, ",\"bda\":true");   // the device address table (vk_gpa.c)
+    if (host_bda32) o += sprintf(o, ",\"bda32\":true");
+    if (host_mesh_compute) o += sprintf(o, ",\"mesh_compute\":true");
     uint32_t magic, nvn2_size;
     memcpy(&magic, control, 4), memcpy(&nvn2_size, control + 0x38, 4);
     if (magic == 0x98761234u) {   // NVN2_CONTROL_MAGIC, below

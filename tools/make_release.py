@@ -206,8 +206,9 @@ def clean_env(*path_dirs):
 
 
 def run(cmd, **kw):
-    print('+', ' '.join(str(c) for c in cmd), flush=True)
-    return subprocess.run([str(c) for c in cmd], check=True, **kw)
+    args = cmd if isinstance(cmd, str) else [str(c) for c in cmd]
+    print('+', args if isinstance(args, str) else ' '.join(args), flush=True)
+    return subprocess.run(args, check=True, **kw)
 
 
 def mib(n):
@@ -247,7 +248,9 @@ def tcltk_files():
     (src / name).rename(msi)
     shutil.rmtree(dest, ignore_errors=True)
     # Administrative image: copies the MSI's files to TARGETDIR, installs nothing and shows no window.
-    run(['msiexec', '/a', msi, '/qn', f'TARGETDIR={dest}'])
+    # Quote the property value itself: Python's argument-list quoting wraps the whole property, which msiexec rejects.
+    cmd = subprocess.list2cmdline(['msiexec', '/a', str(msi), '/qn'])
+    run(cmd + f' TARGETDIR="{dest}"')
     if not (dest / 'DLLs' / '_tkinter.pyd').is_file():
         sys.exit(f'{dest}: no _tkinter.pyd after msiexec /a')
     return dest

@@ -79,7 +79,8 @@ PINS = {
 TOOLS = ('make_game.py', 'nup.py', 'romfs_index.py', 'check_content.py', 'hostmem.py', 'prepare_shaders.py',
          'shader_census.py', 'shader_list.py', 'zstd_compat.py', 'pad_prompts.py', 'prompt_art.py', 'button_icons.py', 'romfs_check.py',
          'pack_shader_cache.py')
-TOP = ('LICENSE', 'LICENSE-ADDITIONS', 'THIRD_PARTY_NOTICES.md', 'nx2navi.ini.example')
+TOP = ('LICENSE', 'LICENSE-ADDITIONS', 'THIRD_PARTY_NOTICES.md', 'nx2navi.ini.example',
+       'nx2navi-retro.ini.example', 'nx2navi-intel-compat.ini.example')
 SKIP_DIRS = {'__pycache__', '.pytest_cache', 'native'}
 SKIP_SUFFIXES = {'.o', '.obj', '.pyc', '.exe', '.dll', '.a', '.lib'}
 TCLTK_FILES = ('_tkinter.pyd', 'tcl90.dll', 'tcl9tk90.dll', 'zlib1.dll', 'libtommath.dll')
@@ -110,8 +111,9 @@ def fetch(name):
 
 
 def run(cmd, **kw):
-    say('  ' + ' '.join(str(c) for c in cmd))
-    subprocess.run([str(c) for c in cmd], check=True, **kw)
+    args = cmd if isinstance(cmd, str) else [str(c) for c in cmd]
+    say('  ' + (args if isinstance(args, str) else ' '.join(args)))
+    subprocess.run(args, check=True, **kw)
 
 
 def copy_tree(src, dst, skip_dirs=SKIP_DIRS):
@@ -142,7 +144,10 @@ def tcltk_files():
     shutil.rmtree(dest, ignore_errors=True)
     dest.mkdir(parents=True)
     if os.name == 'nt':   # an administrative image: copies the files, installs nothing
-        run(['msiexec', '/a', msi, '/qn', f'TARGETDIR={dest}'])
+        # Windows Installer needs PROPERTY="value with spaces", not "PROPERTY=value with spaces".
+        # A Python argument list quotes the whole property; pass the Windows command line directly, without a shell.
+        cmd = subprocess.list2cmdline(['msiexec', '/a', str(msi), '/qn'])
+        run(cmd + f' TARGETDIR="{dest}"')
     else:
         run(['msiextract', '-C', dest, msi], stdout=subprocess.DEVNULL)
     if not (dest / 'DLLs' / '_tkinter.pyd').is_file():

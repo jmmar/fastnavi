@@ -85,6 +85,7 @@ typedef struct VkExec {
     // begin, color_fmt, depth_fmt and samples; vk_exec_draw.c owns every other field (shaders, prim, y_flip, state
     // objects, vertex input).
     VkPipeState pipe;
+    VkDescriptorBufferInfo compat_mesh_buffer; // optional compute/vertex-pulling ABI buffer, owned until this fence
 
     // ---- vk_exec_draw.c slots (draws, binds, dispatch): left empty by vk_exec.c
     const prog_t *prog;                  // OP_BIND_PROGRAM

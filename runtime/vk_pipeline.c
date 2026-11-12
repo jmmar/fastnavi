@@ -49,6 +49,7 @@
 #include "platform/platform.h"
 #include "tex.h"
 #include "vk_gpa.h"
+#include "vk_compat.h"
 #include "vk_warm_hint.h"
 
 #define LOG_ONCE(...) do { static volatile int32_t once_; if (!plat_xchg32(&once_, 1)) rt_log(__VA_ARGS__); } while (0)
@@ -158,10 +159,16 @@ static uint64_t key_hash(const void *k, size_t n) { return nvn_hm_hash(k, (uint3
 
 // The cache file lives next to nx2navi.exe, so every build dir (the main build and each private fork) has its own:
 // forks that shared build\v121's cache broke each other's runs (2026-10-22).
+static const char *compat_cache_tag(void) {
+    return vk_caps.mesh_compute ? (vk_caps.bda32 ? "bda32-mc1" : "mc1") : vk_caps.bda32 ? "bda32" : NULL;
+}
+
 static void cache_path_init(void) {
     const char *cfg_path = cfg_get("NX2NAVI_PIPELINE_CACHE");
-    if (cfg_path && *cfg_path && strlen(cfg_path) < sizeof P.cache_path) {
-        strcpy(P.cache_path, cfg_path);
+    const char *tag = compat_cache_tag();
+    if (cfg_path && *cfg_path && strlen(cfg_path) < sizeof P.cache_path - (tag ? strlen(tag) + 2 : 0)) {
+        if (tag) snprintf(P.cache_path, sizeof P.cache_path, "%s.%s", cfg_path, tag);
+        else strcpy(P.cache_path, cfg_path);
         return;
     }
     P.cache_path[0] = 0;
@@ -171,7 +178,8 @@ static void cache_path_init(void) {
     char *cut = plat_last_sep(exe);
     if (!cut) return;
     *cut = 0;
-    snprintf(P.cache_path, sizeof P.cache_path, "%s/pipeline-cache.bin", exe);
+    if (tag) snprintf(P.cache_path, sizeof P.cache_path, "%s/pipeline-cache-%s.bin", exe, tag);
+    else snprintf(P.cache_path, sizeof P.cache_path, "%s/pipeline-cache.bin", exe);
 }
 
 // ---- pipeline binaries (VK_KHR_pipeline_binary; NX2NAVI_PIPE_BINARIES, default 0 while it is being tested; 1 on)
@@ -296,7 +304,10 @@ static void pb_init(VkCtx *c) {
     memcpy(want.gkey, gk.key, gk.keySize);
     snprintf(PB.path, sizeof PB.path, "%s", P.cache_path);
     char *cut = plat_last_sep(PB.path);
-    snprintf(cut ? cut + 1 : PB.path, sizeof PB.path - (size_t)(cut ? cut + 1 - PB.path : 0), "pipeline-binaries.bin");
+    if (compat_cache_tag())
+        snprintf(cut ? cut + 1 : PB.path, sizeof PB.path - (size_t)(cut ? cut + 1 - PB.path : 0),
+                 "pipeline-binaries-%s.bin", compat_cache_tag());
+    else snprintf(cut ? cut + 1 : PB.path, sizeof PB.path - (size_t)(cut ? cut + 1 - PB.path : 0), "pipeline-binaries.bin");
     uint64_t cap = (uint64_t)strtoull(cfg_value("NX2NAVI_PIPE_BINARIES_MAX_MB"), NULL, 10) << 20;
     FILE *f = fopen(PB.path, "rb");
     PbHeader hd;
@@ -1980,6 +1991,12 @@ static int spirv_mark_list_test(const char *list) {
 
 // early_ok: a fragment shader whose pipeline has no alpha to coverage (spirv_pool_mark)
 static VkShaderModule make_module(const uint32_t *w, uint64_t words, int early_ok) {
+    if (vk_caps.bda32 && !vk_compat_spirv32_safe(w, words)) {
+        static volatile int32_t rejected;
+        if (plat_inc32(&rejected) <= 8)
+            rt_log("vk compat: rejected malformed or Int64 shader; rebuild the translator with paired-word support");
+        return VK_NULL_HANDLE;
+    }
     const uint32_t *orig_w = w;   // for the log of a module the marks cannot take
     uint64_t orig_words = words, fixed_n = 0;
     uint32_t *fixed = spirv_fixup(w, words, &fixed_n);
@@ -3288,6 +3305,7 @@ static void rec_fill(KeyRec *r, const VkPipeState *s) {
 static void keys_note(const VkPipeState *s) {
     if (!A.on || !K.path[0]) return;
     static const uint8_t none[32];
+    if (s->vs && !memcmp(gfx_shader_input_id(s->vs), none, 32)) return; // generated vertex-pulling companion
     if (s->fs && !memcmp(gfx_shader_input_id(s->fs), none, 32)) return;   // the runtime's own shader (gfx_shader_own)
     if (s->ts && !memcmp(gfx_shader_input_id(s->ts), none, 32)) return;
     KeyRec r;
@@ -3334,7 +3352,10 @@ static void keys_open(void) {
     snprintf(K.path, sizeof K.path, "%s", P.cache_path);
     char *slash = strrchr(K.path, '\\'), *fslash = strrchr(K.path, '/');
     if (fslash > slash) slash = fslash;
-    snprintf(slash ? slash + 1 : K.path, sizeof K.path - (size_t)(slash ? slash + 1 - K.path : 0), "pipeline-keys.bin");
+    if (compat_cache_tag())
+        snprintf(slash ? slash + 1 : K.path, sizeof K.path - (size_t)(slash ? slash + 1 - K.path : 0),
+                 "pipeline-keys-%s.bin", compat_cache_tag());
+    else snprintf(slash ? slash + 1 : K.path, sizeof K.path - (size_t)(slash ? slash + 1 - K.path : 0), "pipeline-keys.bin");
     gfx_shader_record_at(K.path);   // shader-answers.bin next to it (gfx_shader.c)
     FILE *f = fopen(K.path, "rb");
     if (!f) return;
@@ -4728,7 +4749,10 @@ static void cu_open(void) {
     CU.keep_n = !strcmp(e, "all") ? -1 : count < 0 ? 0 : count;
     snprintf(CU.path, sizeof CU.path, "%s", K.path);
     char *cut = plat_last_sep(CU.path);
-    snprintf(cut ? cut + 1 : CU.path, sizeof CU.path - (size_t)(cut ? cut + 1 - CU.path : 0), "compute-used.bin");
+    if (compat_cache_tag())
+        snprintf(cut ? cut + 1 : CU.path, sizeof CU.path - (size_t)(cut ? cut + 1 - CU.path : 0),
+                 "compute-used-%s.bin", compat_cache_tag());
+    else snprintf(cut ? cut + 1 : CU.path, sizeof CU.path - (size_t)(cut ? cut + 1 - CU.path : 0), "compute-used.bin");
     uint64_t size = 0;
     uint8_t *f = plat_file_read(CU.path, &size);
     CuHeader h;
@@ -5678,16 +5702,19 @@ static void lb_warm_worker(void *arg) {
             plat_mutex_lock(&LB.stat);
             LB.noshader++;
             plat_mutex_unlock(&LB.stat);
-        } else if (st == GFX_STAGE_CS) {
+        } else if (st == GFX_STAGE_CS || (vk_caps.mesh_compute && (st == GFX_STAGE_TS || st == GFX_STAGE_MS))) {
             Bindings B = {0};
             const char *why = NULL;
+            const GfxMeshCompute *compat = st == GFX_STAGE_CS ? NULL : gfx_shader_mesh_compute(sh);
+            const GfxShader *compute = st == GFX_STAGE_CS ? sh : compat ? compat->compute : NULL;
             lb_lock();
-            Layout *l = compute_layout(sh, &B, &why);
+            Layout *l = compute ? compute_layout(compute, &B, &why) : NULL;
             lb_unlock();
             double t0 = now_ms();
-            VkPipeline pipe = l ? compute_create(sh, l, 0) : VK_NULL_HANDLE;
+            VkPipeline pipe = l ? compute_create(compute, l, 0) : VK_NULL_HANDLE;
             if (pipe) vkDestroyPipeline(P.device, pipe, NULL);
             lb_count(2, pipe ? 3 : 2, now_ms() - t0);
+            if (compat && compat->vertex && P.gpl) lb_library(compat->vertex, 1, 0);
         } else if (st == GFX_STAGE_VS || st == GFX_STAGE_FS) {
             if (P.gpl) lb_library(sh, st == GFX_STAGE_VS, 0);
             else lb_skip_lib();

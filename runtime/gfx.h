@@ -59,6 +59,15 @@ void gfx_shader_disk_counts(uint64_t *sync, uint64_t *sync_ns, uint64_t *bg);   
 // Translator answers for this device (vk_caps.c): shaderFloat64, storage offset rounding, subgroup size per vs/fs/cs.
 void gfx_shader_set_host(int float64, uint32_t sbuf_align, const uint32_t subgroup[3], uint32_t gather_bits, int zero_locals,
                          int bda);
+// Optional compatibility host option; set before gfx_shader_set_host to isolate shader keys and jobs.
+void gfx_shader_set_bda32(int on);
+void gfx_shader_set_mesh_compute(int on);
+typedef struct {
+    uint32_t abi, threads, payload, maxp, ipp, task, stride;
+    const GfxShader *compute, *vertex;
+} GfxMeshCompute;
+// Optional companion shaders, owned by the parent task/mesh translation (including private preparation copies).
+const GfxMeshCompute *gfx_shader_mesh_compute(const GfxShader *shader);
 const uint8_t *gfx_shader_key(const GfxShader *s);          // the 32-byte cache key (stable while the translator is)
 const uint8_t *gfx_shader_input_id(const GfxShader *s);     // the 32-byte input id (stable across translators)
 // By input id from memory or disk; xlate 1 also translates it from its stored inputs. NULL if absent.

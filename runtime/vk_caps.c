@@ -31,6 +31,10 @@ static uint32_t env_u32(const char *name, uint32_t def) {
 }
 
 void vk_caps_features(VkPhysicalDeviceFeatures *f) {
+    vk_caps.bda32 = cfg_bool("NX2NAVI_COMPAT_BDA32");
+    vk_caps.mesh_compute = cfg_bool("NX2NAVI_COMPAT_MESH");
+    if (vk_caps.bda32) rt_log("vk compat: paired-word buffer addressing requested");
+    if (vk_caps.mesh_compute) rt_log("vk compat: experimental task/mesh compute layer requested");
     f64_supported = f->shaderFloat64;
     if (env_u32("NX2NAVI_VK_NO_FLOAT64", 0)) f->shaderFloat64 = VK_FALSE;
     vk_caps.float64 = f->shaderFloat64;
@@ -127,6 +131,8 @@ void vk_caps_init(VkCtx *c) {
     // with one setting serve the other. NX2NAVI_ZERO_LOCALS=0 turns it off.
     uint32_t zero_locals = env_u32("NX2NAVI_ZERO_LOCALS", 1);
     // bda: global accesses the translator finds no storage buffer for go through the device address table (vk_gpa.c)
+    gfx_shader_set_bda32(vk_caps.bda32);
+    gfx_shader_set_mesh_compute(vk_caps.mesh_compute);
     gfx_shader_set_host(vk_caps.float64, vk_caps.sbuf_align, told, gather, zero_locals != 0, vk_gpa_wanted_ctx(c));
     if (gather) rt_log("vk caps: gather coordinates biased for %u sub-texel bits (NX2NAVI_GATHER_BIAS)", gather);
 

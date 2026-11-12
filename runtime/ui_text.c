@@ -584,8 +584,15 @@ static const char *const text_en[UI_TEXT_COUNT] = {
     [UI_MENU_FRAMEGEN_OFF_GPU] = "in use: off, needs an RTX 40 GPU or newer",
     [UI_MENU_FRAMEGEN_OFF_FILES] = "in use: off, its files are missing",
     [UI_MENU_GAME_RES] = "Resolution",
-    [UI_MENU_GAME_RES_DESC] = "Height of the game's picture. Higher is sharper but costs more GPU power.",
+    [UI_MENU_GAME_RES_DESC] = "Height of the composed picture, including the HUD. The world can use a lower resolution. "
+                              "Higher is sharper but costs more GPU power.",
     [UI_MENU_GAME_RES_NATIVE] = "Native",
+    [UI_MENU_UPSCALER_NEAREST] = "Nearest (pixelated)",
+    [UI_MENU_WORLD_RES] = "World resolution",
+    [UI_MENU_WORLD_RES_DESC] = "Height of the 3D world before the HUD is drawn. Lower uses less GPU power. "
+                               "The HUD keeps the game picture's resolution. Takes effect after restart.",
+    [UI_MENU_WORLD_RES_GAME] = "Game / scene scale",
+    [UI_MENU_WORLD_RES_TEMPORAL] = "Choose bilinear, nearest or FSR 1 scaling to set a fixed world resolution.",
     [UI_MENU_CHEATS_REBUILD] = "Rebuild the game now",
     [UI_MENU_CHEATS_REBUILD_DESC] = "Some cheats change the game's code and are not built into it: they are new or "
                                     "edited, or their last rebuild failed or was cancelled. Closes the game; the setup "

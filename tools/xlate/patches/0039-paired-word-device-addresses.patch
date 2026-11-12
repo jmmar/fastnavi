@@ -1,0 +1,77 @@
+--- a/src/Ryujinx.Graphics.Shader/IGpuAccessor.cs
++++ b/src/Ryujinx.Graphics.Shader/IGpuAccessor.cs
+@@ -190,6 +190,9 @@
+ 
+         // NX2NAVI: true when function-local variables start at 0 (CodeGen/Spirv/Declarations.cs DeclareLocals).
+         bool QueryZeroLocals() => false;
++
++        // Optional paired-word buffer addressing; native addressing remains the default.
++        bool QueryBufferAddress32() => false;
+ 
+         void ReportMotionPrevious(int location, int banks)
+         {
+--- a/src/Ryujinx.Graphics.Shader/Translation/HostCapabilities.cs
++++ b/src/Ryujinx.Graphics.Shader/Translation/HostCapabilities.cs
+@@ -13,6 +13,7 @@
+         public readonly bool SupportsTextureShadowLod;
+         public readonly bool SupportsViewportMask;
+         public readonly bool ZeroLocals;
++        public readonly bool BufferAddress32;
+ 
+         public HostCapabilities(
+             bool reducedPrecision,
+@@ -25,7 +26,8 @@
+             bool supportsShaderNonUniformIndexing,
+             bool supportsTextureShadowLod,
+             bool supportsViewportMask,
+-            bool zeroLocals)
++            bool zeroLocals,
++            bool bufferAddress32 = false)
+         {
+             ReducedPrecision = reducedPrecision;
+             SupportsFragmentShaderInterlock = supportsFragmentShaderInterlock;
+@@ -38,6 +40,7 @@
+             SupportsTextureShadowLod = supportsTextureShadowLod;
+             SupportsViewportMask = supportsViewportMask;
+             ZeroLocals = zeroLocals;
++            BufferAddress32 = bufferAddress32;
+         }
+     }
+ }
+--- a/src/Ryujinx.Graphics.Shader/Translation/TranslatorContext.cs
++++ b/src/Ryujinx.Graphics.Shader/Translation/TranslatorContext.cs
+@@ -387,7 +387,8 @@
+                 GpuAccessor.QueryHostSupportsShaderNonUniformIndexing(),
+                 GpuAccessor.QueryHostSupportsTextureShadowLod(),
+                 GpuAccessor.QueryHostSupportsViewportMask(),
+-                GpuAccessor.QueryZeroLocals());
++                GpuAccessor.QueryZeroLocals(),
++                GpuAccessor.QueryBufferAddress32());
+ 
+             CodeGenParameters parameters = new CodeGenParameters(attributeUsage, definitions, resourceManager.Properties, hostCapabilities, GpuAccessor, Options.TargetApi);
+ 
+--- a/src/Ryujinx.Graphics.Shader/CodeGen/Spirv/Instructions.cs
++++ b/src/Ryujinx.Graphics.Shader/CodeGen/Spirv/Instructions.cs
+@@ -1897,6 +1897,11 @@
+         // twinPointer: the guest copy of a mirrored page, else the scratch buffer.
+         private static SpvInstruction GetDeviceAddressPointers(CodeGenContext context, int binding, SpvInstruction low, SpvInstruction high, out SpvInstruction twinPointer)
+         {
++            if (context.HostCapabilities.BufferAddress32)
++            {
++                return DeviceAddress32.GetPointers(context, binding, low, high, out twinPointer);
++            }
++
+             SpvInstruction u32 = context.TypeU32();
+             SpvInstruction u64 = context.TypeInt(64, 0);
+             SpvInstruction tableVar = context.StorageBuffers[binding];
+--- a/src/Ryujinx.Graphics.Shader/CodeGen/Spirv/SpirvGenerator.cs
++++ b/src/Ryujinx.Graphics.Shader/CodeGen/Spirv/SpirvGenerator.cs
+@@ -49,7 +49,7 @@
+             {
+                 // NX2NAVI: global memory through the device address table (Instructions.cs GetDeviceAddressPointer)
+                 context.AddCapability(Capability.PhysicalStorageBufferAddresses);
+-                context.AddCapability(Capability.Int64);
++                if (!context.HostCapabilities.BufferAddress32) context.AddCapability(Capability.Int64);
+                 context.AddExtension("SPV_KHR_physical_storage_buffer");
+                 context.SetMemoryModel(AddressingModel.PhysicalStorageBuffer64, MemoryModel.GLSL450);
+             }

@@ -55,6 +55,8 @@ enum { VK_FEEDBACK_OFF, VK_FEEDBACK_RESTART, VK_FEEDBACK_LAYOUT };
 // vk_caps.c: fallbacks for GPUs other than the RX 9070, decided at device creation.
 typedef struct {
     int float64;                       // shaderFloat64 enabled; 0: shaders are translated with softfloat64
+    int bda32;                         // opt-in paired-word buffer addressing (COMPAT_BDA32), native path otherwise
+    int mesh_compute;                  // optional compute-to-geometry layer, independent of native mesh support
     uint32_t sbuf_align;               // nonzero: storage buffers bind at their address rounded down to this
     uint32_t sg_size;                  // requiredSubgroupSize on sg_pin_stages (32)
     VkShaderStageFlags sg_pin_stages;  // 0: no pin, stages run at the device's subgroupSize

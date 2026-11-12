@@ -293,6 +293,8 @@ typedef enum {
     UI_MENU_FRAMEGEN_MULT_UPTO,      // printf: "%d", the highest multiplier this GPU and driver allow
     UI_MENU_FRAMEGEN_MULT_OLD_DLL,   // nx2navi_dlssg.dll is older than multi frame generation
     UI_MENU_FRAMEGEN_OFF_GPU, UI_MENU_FRAMEGEN_OFF_FILES,
+    UI_MENU_UPSCALER_NEAREST, UI_MENU_WORLD_RES, UI_MENU_WORLD_RES_DESC, UI_MENU_WORLD_RES_GAME,
+    UI_MENU_WORLD_RES_TEMPORAL,
     UI_TEXT_COUNT
 } UiTextId;
 

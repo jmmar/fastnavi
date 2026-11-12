@@ -5,7 +5,7 @@
 ; decode with the sRGB curve, which darkened mid-tones and lifted the darkest values.
 ; Written in SPIR-V assembly (spirv-as; no GLSL compiler in the build). As GLSL:
 ;   layout(local_size_x = 8, local_size_y = 8) in;
-;   layout(binding = 0) uniform sampler2D src;              // the stored picture (linear filtering)
+;   layout(binding = 0) uniform sampler2D src;              // the stored picture (linear or nearest filtering)
 ;   layout(binding = 1, rgba16f) uniform writeonly image2D dst;   // the pass output (vk_tonemap.c), blitted into the target
 ;   layout(push_constant) uniform P { vec2 inv; float unused; float pad; ivec2 size; } pc;
 ;   void main() {

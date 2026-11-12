@@ -1362,6 +1362,8 @@ uint64_t vk_exec_storage_addr(const VkExec *ex, int st, const GfxShaderRes *r) {
 uint64_t vk_exec_cs_storage_addr(const VkExec *ex, const GfxShaderRes *r) { return vk_exec_storage_addr(ex, NVN_STAGE_CS, r); }
 
 static VkDescriptorBufferInfo ssbo_info(VkExec *ex, int st, const GfxShaderRes *r, int written) {
+    if (r->cbuf_slot == -2)
+        return ex->compat_mesh_buffer.buffer ? ex->compat_mesh_buffer : (VkDescriptorBufferInfo){Z.zbuf, 0, VK_WHOLE_SIZE};
     // The device address table (vk_gpa.c, translator patch 0030). Mirrored pools are not synced for its readers: a sync
     // of every mirror at a table reader's draw copied stale guest bytes over what the GPU had written into the mirrors
     // earlier in the frame, and Kokiri Forest's lit areas went black. A pool read only through the table is rarely a
@@ -3533,6 +3535,8 @@ static void prog_lead(const prog_t *p, int mesh) {
                (unsigned long long)PLD.n[m][4], (unsigned long long)PLD.n[m][5]);
 }
 
+#include "vk_mesh_compat.inc"
+
 // mesh: a mesh draw (op_draw_mesh): the program's mesh and task stages stand in for the vertex stage, and nothing
 // vertex-related (vertex buffers, motion vector bookkeeping of vertex shaders) is bound or noted.
 static int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int mesh) {
@@ -3587,12 +3591,18 @@ static int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int
         if (fs_wait) fs = shader_for(ex, NVN_STAGE_FS, &has_fs, NULL, 1);
     }
     if (!vs || (has_fs && !fs) || (has_ts && !ts)) return draw_skipped(ex, mesh, SK_SHADER_FAILED);
+    int compat_mesh = mesh && vk_caps.mesh_compute;
+    if (compat_mesh) {
+        if (!mesh_compat_generate(ex, vs, ts, &vs, &prim)) return draw_skipped(ex, mesh, SK_SHADER_FAILED);
+        ts = NULL;
+        mesh = 0; // the generated stage is a conventional vertex shader; native mesh draws keep their path
+    }
     if (shader_skipped(vs) || shader_skipped(fs)) return draw_skipped(ex, mesh, SK_POOL_OFF);   // NX2NAVI_SKIP_SHADERS
     if (vk_dlaa_skip_draw(ex, fs)) return draw_skipped(ex, mesh, SK_DLAA);   // the game's FXAA off, or its scaling replaced by DLSS (vk_dlaa.c)
     uint32_t fbl = feedback_prepare(ex, fs);
     VkPipeState s = ex->pipe;
     s.vs = vs, s.fs = fs, s.ts = ts;
-    if (mesh) foliage_shadow_cull(ex, &s);
+    if (mesh || compat_mesh) foliage_shadow_cull(ex, &s);
     s.feedback = (uint8_t)((fbl & 0xff ? 1 : 0) | (fbl & 0x100 ? 2 : 0));
     s.prim = (uint8_t)prim;
     s.depth_minus_w = (uint8_t)(nvn_depth_minus_w() != 0);
@@ -3711,7 +3721,7 @@ static int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int
         B.st = s, B.st_valid = 1;
         if (ex->mark && vk_exec_frame.draws == ex->mark_draws0) ex->mark->first[0] = vs, ex->mark->first[1] = fs;
     }
-    if (!mesh) {
+    if (!mesh && !compat_mesh) {
         vk_dlaa_draw(ex);
         vk_mvsurvey_draw(ex);
         vk_mvprev_draw(ex);
@@ -4610,7 +4620,29 @@ static void mesh_shading_rate(VkExec *ex) {
     ex->recorded++;
 }
 
+static void mesh_compat_draw(VkExec *ex, uint32_t count, uint32_t first, const VkMemSpan *arguments) {
+    if (!count || !ex->prog || ex->render_disabled) return;
+    static int on = -1;
+    if (on < 0) on = rt_knob("MESH", "1");
+    if (!on) return;
+    memset(&mc_draw, 0, sizeof mc_draw);
+    mc_draw.active = 1, mc_draw.count = count, mc_draw.first = first, mc_draw.indirect = arguments != NULL;
+    if (arguments) mc_draw.arguments = *arguments;
+    c0_binst = 0;
+    while (mc_draw.base < count) {
+        mc_draw.batch = 0;
+        if (!prepare_draw_ex(ex, NVN_DRAW_PRIMITIVE_TRIANGLES, 0x7fffffff, 0, 1)) break;
+        vkCmdDrawIndirect(ex->cb, ex->compat_mesh_buffer.buffer, 0, 1, sizeof(VkDrawIndirectCommand));
+        ex->recorded++;
+        vk_exec_frame.draws++;
+        if (!mc_draw.batch) break; // a shader/pipeline/metadata failure must not spin through empty batches
+        mc_draw.base += mc_draw.batch;
+    }
+    mc_draw.active = 0;
+}
+
 static void op_draw_mesh(VkExec *ex, const p_draw_mesh *d) {
+    if (vk_caps.mesh_compute) { mesh_compat_draw(ex, d->count, d->first, NULL); return; }
     PFN_vkCmdDrawMeshTasksEXT fn = draw_mesh_fn();
     if (!fn) return warn_once(W_MESH, "mesh draws need VK_EXT_mesh_shader: skipped");
     static int on = -1;
@@ -4701,6 +4733,15 @@ static int mesh_ring_entry(VkExec *ex, const VkMemSpan *src, VkDeviceSize *at) {
 // DrawMeshTasksIndirect: one draw from its ring entry (mesh_ring_entry); x2-x4 of the call vary like leftovers, so they
 // are not read as a count or stride.
 static void op_draw_mesh_ind(VkExec *ex, const p_draw_mesh_ind *d) {
+    if (vk_caps.mesh_compute) {
+        VkMemSpan args;
+        if (!vk_mem_resolve(d->ind, 8, &args) || args.offset % 4)
+            return warn_once(W_INDIRECT, "compatibility mesh arguments are not backed or aligned");
+        VK_MEM_USE(args);
+        mesh_compat_draw(ex, MC_INDIRECT_LIMIT, 0, &args);
+        VK_MEM_BOUND(args);
+        return;
+    }
     static PFN_vkCmdDrawMeshTasksIndirectEXT fn;
     static int looked;
     if (!looked) {
@@ -5110,7 +5151,7 @@ static void untranslated_dispatch_fallback(VkExec *ex) {
     // The pass above squares them. Without it, this approximation decodes with the sRGB curve instead: scale into an
     // RGBA8 UNORM scratch (the stored values), copy those bits into an RGBA8 sRGB scratch, and blit that into the
     // target, which reads the sRGB image as linear (mid-tones a little dark, the darkest values a little lifted).
-    int filter_nearest = tm || (e5 && e5_blit == 1);
+    int filter_nearest = tm || (e5 && e5_blit == 1) || !strcmp(cfg_value("NX2NAVI_UPSCALER"), "nearest");
     VkImage g8 = VK_NULL_HANDLE, g8s = VK_NULL_HANDLE;
     if (e5 && !tm && !scratch && !fmt_rgba8(df)) {
         g8 = fallback_scratch(ex, dw, dh, VK_FORMAT_R8G8B8A8_UNORM);

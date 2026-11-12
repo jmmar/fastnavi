@@ -99,8 +99,8 @@ def prepare_sources() -> Path:
     for junk in list(src.glob("src/*/obj")) + list(src.glob("src/*/bin")):
         shutil.rmtree(junk)
     patches = sorted((XLATE / "patches").glob("*.patch"))
-    if len(patches) != 37:
-        sys.exit(f"expected 37 patches, found {len(patches)}")
+    if len(patches) != 38:
+        sys.exit(f"expected 38 patches, found {len(patches)}")
     # build/xlate is inside this checkout, and git inside a repository reads a "diff --git" patch's paths from the
     # repository's top: those hunks fall outside the directory handed to --directory, git skips every file of the patch
     # and still exits 0. GIT_CEILING_DIRECTORIES stops git from walking up to the checkout, so it reads each patch as it
@@ -117,6 +117,9 @@ def prepare_sources() -> Path:
             if r.returncode != 0 or skipped:
                 sys.exit(f"patch does not apply: {patch.name}\n{r.stdout}{r.stderr}")
         print(f"applied {patch.name}")
+    # Additive compatibility generator; vendor sources and the native address generator stay intact.
+    shutil.copy2(XLATE / "compat" / "DeviceAddress32.cs",
+                 src / "src" / "Ryujinx.Graphics.Shader" / "CodeGen" / "Spirv" / "DeviceAddress32.cs")
     return src
 
 
@@ -180,7 +183,7 @@ def identity() -> str:
     tree, the vendor tree and the patch files as they are."""
     h = hashlib.sha256()
     h.update(f"settings\0{BUILD_SETTINGS}\n".encode())
-    for name in ("Program.cs", "AmpereLowering.cs", "MeshSpirv.cs", "nx2navi_xlate.csproj"):
+    for name in ("Program.cs", "AmpereLowering.cs", "MeshSpirv.cs", "MeshComputeSpirv.cs", "nx2navi_xlate.csproj", "compat/DeviceAddress32.cs"):
         h.update(f"{name}\0{code_digest(XLATE / name)}\n".encode())
     tree = BUILD / "ryujinx"
     if (tree / "src").is_dir():
@@ -231,7 +234,7 @@ def main() -> None:
     work = BUILD / "xlate"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
-    for name in ("Program.cs", "AmpereLowering.cs", "MeshSpirv.cs", "nx2navi_xlate.csproj"):
+    for name in ("Program.cs", "AmpereLowering.cs", "MeshSpirv.cs", "MeshComputeSpirv.cs", "nx2navi_xlate.csproj"):
         shutil.copy2(XLATE / name, work / name)
     out = BUILD / "publish"
     shutil.rmtree(out, ignore_errors=True)

@@ -815,7 +815,7 @@ static bool dlss_offered(void) {
 // One upscaling choice over three settings: NX2NAVI_UPSCALER (how the picture is fitted to the window), NX2NAVI_DLAA
 // (DLSS or FSR 3.1 on) with NX2NAVI_TAA (which of them) and NX2NAVI_DLSS (the mode, the render scale: widescreen.c
 // wide_present). A temporal mode fits the picture with bilinear, the upscaler having made it; DLSS's model is NVIDIA's own
-// for the mode (vk_dlaa.c evaluate, dlss_preset at its default). The list: bilinear, FSR 1, the DLSS modes where DLSS
+// for the mode (vk_dlaa.c evaluate, dlss_preset at its default). The list: bilinear, nearest, FSR 1, the DLSS modes where DLSS
 // runs (dlss_offered), the FSR 3.1 modes where FSR 3.1 loads (vk_ffx_available); a DLSS or FSR 3.1 mode still set where
 // it does not run stays listed last until another choice replaces it, so the row shows what is set.
 // The Upscaling row's name of what is set now, for the performance overlay.
@@ -825,7 +825,8 @@ static void upscaling_name(char *out, size_t size) {
     static const UiTextId fsr3[] = {UI_MENU_FSR3_NATIVE, UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED, UI_MENU_DLSS_PERFORMANCE, UI_MENU_DLSS_ULTRA};
     // FSR 3.1 set where it cannot load runs nothing (vk_dlaa.c vk_dlaa_fsr3): the game scales the picture as the rest says
     if (!cfg_bool("NX2NAVI_DLAA") || (!strcmp(cfg_value("NX2NAVI_TAA"), "fsr3") && !vk_ffx_available())) {
-        if (strcmp(cfg_value("NX2NAVI_UPSCALER"), "fsr")) snprintf(out, size, "%s", menu_text(UI_MENU_UPSCALER_BILINEAR));
+        if (!strcmp(cfg_value("NX2NAVI_UPSCALER"), "nearest")) snprintf(out, size, "%s", menu_text(UI_MENU_UPSCALER_NEAREST));
+        else if (strcmp(cfg_value("NX2NAVI_UPSCALER"), "fsr")) snprintf(out, size, "%s", menu_text(UI_MENU_UPSCALER_BILINEAR));
         else snprintf(out, size, menu_text(UI_MENU_OV_FMT_FSR), cfg_int("NX2NAVI_SHARPNESS"));
         return;
     }
@@ -847,15 +848,16 @@ static void row_upscaling(void) {
     // FSR 3.1's modes take the same render scales as DLSS's (Native AA is FSR's name for DLAA's full size)
     static const UiTextId fsr_names[] = {UI_MENU_FSR3_NATIVE, UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED,
                                          UI_MENU_DLSS_PERFORMANCE, UI_MENU_DLSS_ULTRA};
-    enum { BILINEAR, FSR1, DLSS, FSR3 };
+    enum { BILINEAR, NEAREST, FSR1, DLSS, FSR3 };
     struct Entry { int kind, mode; };
     static char text[10][96];
-    Entry list[12];
-    const char *names[12];
+    Entry list[13];
+    const char *names[13];
     int n = 0;
     auto add = [&](int kind, int mode) {
         list[n] = {kind, mode};
         if (kind == BILINEAR) names[n] = menu_text(UI_MENU_UPSCALER_BILINEAR);
+        else if (kind == NEAREST) names[n] = menu_text(UI_MENU_UPSCALER_NEAREST);
         else if (kind == FSR1) names[n] = menu_text(UI_MENU_UPSCALER_FSR);
         else {
             char *t = text[(kind == FSR3 ? 5 : 0) + mode];
@@ -867,6 +869,7 @@ static void row_upscaling(void) {
     };
     // what is set now
     Entry now = {strcmp(cfg_value("NX2NAVI_UPSCALER"), "fsr") ? BILINEAR : FSR1, 0};
+    if (!strcmp(cfg_value("NX2NAVI_UPSCALER"), "nearest")) now.kind = NEAREST;
     if (cfg_bool("NX2NAVI_DLAA")) {
         now = {strcmp(cfg_value("NX2NAVI_TAA"), "fsr3") ? DLSS : FSR3, 0};
         for (int i = 0; i < 5; i++)
@@ -874,6 +877,7 @@ static void row_upscaling(void) {
     }
     const bool dlss = dlss_offered(), fsr = vk_ffx_available();
     add(BILINEAR, 0);
+    add(NEAREST, 0);
     add(FSR1, 0);
     for (int i = 0; dlss && i < 5; i++) add(DLSS, i);
     for (int i = 0; fsr && i < 5; i++) add(FSR3, i);
@@ -886,12 +890,12 @@ static void row_upscaling(void) {
     const char *note = nullptr;
     if (!fsr && now.kind == FSR3) note = menu_text(UI_MENU_FSR3_OFF);
     else if (upscaling_restart()) note = menu_text(UI_MENU_AFTER_RESTART);
-    int nv = opt_choice_index("NX2NAVI_UPSCALER", UI_MENU_UPSCALING, names, n, cur, 1,
+    int nv = opt_choice_index("NX2NAVI_UPSCALER", UI_MENU_UPSCALING, names, n, cur, FSR1,
                               !fsr ? UI_MENU_UPSCALING_DESC_NO_FSR : dlss ? UI_MENU_UPSCALING_DESC : UI_MENU_UPSCALING_DESC_FSR,
                               note);
     if (nv < 0 || nv >= n) return;
     const Entry e = list[nv];
-    opt_apply("NX2NAVI_UPSCALER", e.kind == FSR1 ? "fsr" : "bilinear");
+    opt_apply("NX2NAVI_UPSCALER", e.kind == FSR1 ? "fsr" : e.kind == NEAREST ? "nearest" : "bilinear");
     opt_apply("NX2NAVI_DLAA", e.kind >= DLSS ? "1" : "0");
     if (e.kind < DLSS) opt_apply("NX2NAVI_FRAMEGEN", "off");   // it needs DLSS's or FSR 3.1's motion vectors (row_framegen)
     if (e.kind >= DLSS) opt_apply("NX2NAVI_DLSS", modes[e.mode]);
@@ -1045,11 +1049,18 @@ static void row_framegen(void) {
     else if (cur == 2 && upscaled && dlss) row_framegen_mult(restart);
 }
 
-// The picture's height (widescreen.c picture_height): 1080, the game's 1440 or more.
+// The composed picture's height, including the game's HUD (widescreen.c picture_height).
 static void row_game_res(void) {
-    static const char *const values[] = {"1080", "1440", "1800", "2160", "2880", "window"};
-    const char *names[] = {"1080p", "1440p", "1800p", "2160p (4K)", "2880p (5K)", menu_text(UI_MENU_GAME_RES_NATIVE)};
-    opt_choice_list("NX2NAVI_GAME_RES", UI_MENU_GAME_RES, values, names, 6, UI_MENU_GAME_RES_DESC);
+    static const char *const values[] = {"720", "1080", "1440", "1800", "2160", "2880", "window"};
+    const char *names[] = {"720p", "1080p", "1440p", "1800p", "2160p (4K)", "2880p (5K)", menu_text(UI_MENU_GAME_RES_NATIVE)};
+    opt_choice_list("NX2NAVI_GAME_RES", UI_MENU_GAME_RES, values, names, 7, UI_MENU_GAME_RES_DESC);
+}
+
+static void row_world_res(void) {
+    static const char *const values[] = {"game", "240", "360", "480", "720"};
+    const char *names[] = {menu_text(UI_MENU_WORLD_RES_GAME), "240p", "360p", "480p", "720p"};
+    if (cfg_bool("NX2NAVI_DLAA")) opt_disable_next(UI_MENU_WORLD_RES_TEMPORAL);
+    opt_choice_list("NX2NAVI_WORLD_RES", UI_MENU_WORLD_RES, values, names, 5, UI_MENU_WORLD_RES_DESC);
 }
 
 static void tab_screen(float scale) {
@@ -1072,6 +1083,7 @@ static void tab_screen(float scale) {
     if (wide_available()) opt_choice("NX2NAVI_GAME_ASPECT", UI_MENU_GAME_ASPECT, wide, 4, UI_MENU_GAME_ASPECT_DESC);
     if (wide_available()) row_game_res();
     row_upscaling();
+    if (wide_available()) row_world_res();
     row_framegen();
     row_hdr();
     // The sharpening runs under FSR 1 (vk_fsr.c vk_fsr_record, RCAS) and FSR 3.1 (vk_ffx.cpp, its own RCAS); with

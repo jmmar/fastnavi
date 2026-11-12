@@ -45,6 +45,20 @@
 # of the last five frame times, which changes with every frame.
 # step_steady = 1
 
+[compatibility]
+# Experimental additional layer, off by default. Uses pairs of 32-bit shader integers for the device address table
+# without changing its memory layout, native generator or load/store/atomic behavior. Requires bufferDeviceAddress
+# and the device address table (gpa must not be 0). Needs a translator rebuilt with patch 0039. Read at start.
+# Shader cache keys, pipeline cache files and pipeline binaries are separated from the native path.
+# This addresses shaderInt64 only; the separate mesh/task layer below is also needed on GPUs without mesh shaders.
+# compat_bda32 = 0
+# Experimental task/mesh shaders through compute and vertex pulling; native mesh/task drawing remains the default.
+# Keeps original task/mesh resource banks, payloads and vertex attributes; expands primitives into conventional draws.
+# Direct draws are batched. Indirect draws are limited to 4096 task groups: larger draws are omitted and logged.
+# Up to 32 MiB of geometry memory is used per active command-buffer fence, with further allocations only on growth.
+# This path is unvalidated in-game and can be much slower than native mesh shaders. Read at start.
+# compat_mesh = 0
+
 [performance]
 # The keys of this section and of [diagnostics] are for testing and troubleshooting, and take effect at the next start.
 # The Advanced tab of the settings menu (F1) shows all of them except zstd_native and zstd_check.
@@ -331,15 +345,23 @@
 # tools/make_romfs_patches.py --aspect WxH. Read at start.
 # output_res = 1920x1080
 # Ocarina of Time sizes its picture with these two instead (output_res and render_scale do nothing there). The shape:
-# 16:9, window (the window's shape, or the monitor's in fullscreen), 21:9 or 32:9. The height: 1080 (lighter than the
+# 16:9, window (the window's shape, or the monitor's in fullscreen), 21:9 or 32:9. The height: 720, 1080 (lighter than the
 # game's own), 1440 (the game's own), 1800, 2160, 2880 or window (the window's height, at least 1440). The DLSS and
 # FSR 3.1 modes render their share of this picture. Read at start.
 # game_aspect = 16:9
 # game_res = 1440
+# Ocarina's world height, independent of the picture and HUD: game (the usual scene scale), 240, 360, 480 or 720.
+# With game_res = 720 and world_res = 480, the intended result is a 480-line world under a 720p HUD. Width follows
+# the aspect ratio and engine alignment. DLSS and FSR 3.1 take precedence and use their mode's scale instead.
+# A fixed height takes precedence over the legacy scene_share override. Read at start; lower heights need in-game
+# validation. The fixed scale starts after the first 120 presents while the game's resolution controller initializes.
+# world_res = game
 # 3D render scale: the scene's size relative to the game resolution, game (5/6, the game's own 1600x900 at 1080p) or
 # a percentage (25 to 400, at most 4096 pixels a side); above 100 supersamples the scene (anti-aliasing). Read at start.
 # render_scale = game
-# Scaling to the window when it is larger than the game resolution: fsr (AMD FSR 1) or bilinear, and FSR's sharpening
+# Scaling to the window when it is larger than the game resolution: fsr (AMD FSR 1), bilinear, or nearest (pixelated).
+# Nearest also point-samples the replacement scene upscaler before the HUD is drawn. It preserves the fullscreen
+# window and desktop resolution. Non-integer enlargement produces uneven pixel sizes. FSR's sharpening runs
 # from 0 (off) to 100. Changes while the game runs take effect at once.
 # upscaler = fsr
 # sharpness = 80

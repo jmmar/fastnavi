@@ -132,6 +132,9 @@ static class SwshXlate
         // The runtime binds the device address table (runtime/vk_gpa.c) when the device has buffer device addresses:
         // global accesses the translator finds no storage buffer for go through it (patch 0030).
         public bool QueryHostSupportsBufferDeviceAddress() => _job["bda"] is JsonValue v && v.TryGetValue<bool>(out bool b) && b;
+        // Opt-in address compatibility layer; absent from native jobs.
+        public bool QueryBufferAddress32() => _job["bda32"] is JsonValue v && v.TryGetValue<bool>(out bool b) && b;
+        public bool QueryMeshCompute() => _job["mesh_compute"] is JsonValue v && v.TryGetValue<bool>(out bool b) && b;
         public bool QueryHostSupportsTextureShadowLod() => true;
         // Sub-texel precision bits of a host whose gathers round differently from Maxwell (AMD, Intel): the translator then
         // biases gather coordinates so the same texels are picked (TexturePass.InsertCoordGatherBias). 0: no bias.
@@ -156,6 +159,23 @@ static class SwshXlate
         public void ReportMotionPrevious(int location, int banks) => (MotionPreviousLocation, MotionPreviousBanks) = (location, banks);
     }
 
+
+    // Compatibility jobs must never silently fall back to a shader the target device cannot execute.
+    static void RequireNoInt64(byte[] code)
+    {
+        if (code.Length < 20 || code.Length % 4 != 0 || BitConverter.ToUInt32(code, 0) != 0x07230203)
+            throw new Exception("bda32: malformed SPIR-V module");
+        for (int at = 20; at < code.Length;)
+        {
+            uint word = BitConverter.ToUInt32(code, at), op = word & 0xffff;
+            int length = checked((int)(word >> 16) * 4);
+            if (length < 4 || length > code.Length - at) throw new Exception("bda32: malformed SPIR-V instruction");
+            if (op == 17 && length >= 8 && BitConverter.ToUInt32(code, at + 4) == 11 ||
+                op == 21 && length >= 16 && BitConverter.ToUInt32(code, at + 8) == 64)
+                throw new Exception("bda32: shader still requires Int64 outside the paired-word address path");
+            at += length;
+        }
+    }
 
     internal static string Translate(JsonObject job, string outDir)   // also called by the --service mode (Service.cs)
     {
@@ -220,11 +240,27 @@ static class SwshXlate
                 // A recursive call graph (subroutines the translator could not tell apart) is refused: Vulkan forbids it
                 // and NVIDIA's compiler overflows its stack on it (MeshSpirv.CallCycle).
                 if (MeshSpirv.CallCycle(spirv) is long cyc && cyc >= 0) throw new Exception($"recursive call graph (function %{cyc})");
-                if (mesh != null)
+                uint compatBinding = 1;
+                if (mesh != null && acc.QueryMeshCompute())
+                {
+                    // The extra buffer follows every resource the translated stage already declares.
+                    uint[] module = new uint[spirv.Length / 4]; Buffer.BlockCopy(spirv, 0, module, 0, spirv.Length);
+                    for (int at = 5; at < module.Length;)
+                    {
+                        int n = (int)(module[at] >> 16);
+                        if (n == 0 || n > module.Length - at) throw new Exception("mesh compute: malformed bindings");
+                        if ((module[at] & 65535) == 71 && n == 4 && module[at + 2] == 33)
+                            compatBinding = Math.Max(compatBinding, module[at + 3] + 1);
+                        at += n;
+                    }
+                    spirv = MeshComputeSpirv.Convert(spirv, mesh, compatBinding);
+                }
+                else if (mesh != null)
                 {
                     if (job["compute_out"] is JsonNode co) File.WriteAllBytes((string)co, spirv);
                     spirv = MeshSpirv.Convert(spirv, mesh);
                 }
+                if (acc.QueryBufferAddress32()) RequireNoInt64(spirv);
                 File.WriteAllBytes(Path.Combine(outDir, key + ".spv"), spirv);
                 var res = new JsonObject
                 {
@@ -250,6 +286,24 @@ static class SwshXlate
                     if (pointer) o["ptr"] = (b.SbCbOffset >> 10) * 8;
                     if (b.SbCbSlot == 0x40) o["table"] = true;   // the device address table (patch 0030, ResourceManager.DeviceAddressTableCbSlot)
                     res["sbufs"].AsArray().Add((JsonNode)o);
+                }
+                if (mesh != null && acc.QueryMeshCompute())
+                {
+                    res["sbufs"].AsArray().Add((JsonNode)new JsonObject { ["binding"] = compatBinding, ["slot"] = -1,
+                        ["cb_slot"] = -2, ["cb_offset"] = 0, ["flags"] = 1 });
+                    res["compat_mesh_abi"] = MeshComputeSpirv.Abi;
+                    res["compat_mesh_threads"] = mesh.Threads;
+                    res["compat_mesh_payload"] = mesh.PayloadBytes / 4;
+                    res["compat_mesh_maxp"] = mesh.MaxPrimitives;
+                    res["compat_mesh_ipp"] = mesh.IndicesPerPrimitive;
+                    res["compat_mesh_task"] = mesh.HasTask ? 1 : 0;
+                    res["compat_mesh_stride"] = MeshComputeSpirv.Stride(mesh);
+                    if (mesh.Stage == 7)
+                    {
+                        byte[] vertex = MeshComputeSpirv.Vertex(mesh, 1);
+                        uint[] words = new uint[vertex.Length / 4]; Buffer.BlockCopy(vertex, 0, words, 0, vertex.Length);
+                        res["compat_mesh_vertex"] = new JsonArray(words.Select(w => (JsonNode)JsonValue.Create(w)).ToArray());
+                    }
                 }
                 foreach (var (list, name) in new[] { (p.Info.Textures, "textures"), (p.Info.Images, "images") })
                     foreach (var t in list) res[name].AsArray().Add((JsonNode)new JsonObject { ["binding"] = t.Binding, ["type"] = (int)t.Type, ["format"] = t.Format.ToString(), ["cbuf_slot"] = t.CbufSlot, ["handle"] = t.HandleIndex, ["array"] = t.ArrayLength, ["separate"] = t.Separate, ["flags"] = (int)t.Flags,

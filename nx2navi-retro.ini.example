@@ -1,0 +1,31 @@
+# Opt-in retro starting configuration for the Ocarina build on the retro-low-spec branch.
+# Merge these keys into nx2navi.ini beside the built executable, keeping your other preferences.
+# Requires a rebuilt executable. Source inspection only: no build or runtime validation performed.
+# The monitor mode and fullscreen window dimensions are not changed by these internal sizes.
+
+[display]
+fullscreen = 1
+game_aspect = 16:9
+game_res = 720
+world_res = 480
+upscaler = nearest
+dlaa = 0
+framegen = off
+fxaa = 0
+texture_detail = low
+aniso = game
+shadow_scale = 1
+contact_shadows = 0
+pcss = 0
+
+# Optional: world_res = 360 gives 2x world-to-UI enlargement; 240 gives 3x.
+# 480 -> 720 is 1.5x, so pixel sizes are uneven. All are accepted retro presentations.
+# The existing FXAA switch may preserve smoothing in a required scaling draw.
+# Grass, LOD distances, volumetric fog, bloom and depth of field remain unchanged in this pass.
+
+[performance]
+astc_bc = 1
+
+[frame rate]
+fps_limit = 30
+# Change to 60 if you prefer smoother motion; the lower limit reduces rendering demand.
