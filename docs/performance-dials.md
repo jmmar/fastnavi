@@ -116,6 +116,8 @@ runtime or prepared shader package as the implementation of this update.
 Build and content-check results are recorded in `build/upstream-update-validation.md`.
 No game run or measured performance gain is implied by a successful compilation.
 The new low-resolution paths need the user's visual validation.
+For intermittent hitches and first-use effects, see `stutter-diagnostics.md`; it starts
+with existing timing records and escalates only when the first capture leaves a question.
 
 For manual comparison, use the same save, route, camera, resolution, frame limit and
 background applications. Let shader preparation complete and traverse the route once
