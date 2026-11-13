@@ -444,11 +444,15 @@
 # tools/make_romfs_patches.py --aspect WxH. Read at start.
 # output_res = 1920x1080
 # Ocarina of Time sizes its picture with these two instead (output_res and render_scale do nothing there). The shape:
-# 16:9, window (the window's shape, or the monitor's in fullscreen), 21:9 or 32:9. The height: 1080 (lighter than the
+# 16:9, window (the window's shape, or the monitor's in fullscreen), 21:9 or 32:9. The height: 720, 1080 (lighter than the
 # game's own), 1440 (the game's own), 1800, 2160, 2880 or window (the window's height, at least 1440). The DLSS and
 # FSR 3.1 modes render their share of this picture. Read at start.
 # game_aspect = 16:9
 # game_res = 1440
+# Optional fixed 3D scene height before the HUD: game (the normal scene scale), 240, 360, 480 or 720.
+# The HUD keeps game_res. Temporal upscaling (FSR or DLSS) uses its own ratio instead. Read at start.
+# Below 1080p is experimental; verify the actual scene sizes and picture in play.
+# world_res = game
 # 3D render scale: the scene's size relative to the game resolution, game (5/6, the game's own 1600x900 at 1080p) or
 # a percentage (25 to 400, at most 4096 pixels a side); above 100 supersamples the scene (anti-aliasing). Read at start.
 # render_scale = game
@@ -468,6 +472,8 @@
 # mesh_emu_tasks = 16384
 # Scaling to the window when it is larger than the game resolution: fsr (AMD FSR 1) or bilinear, and FSR's sharpening
 # from 0 (off) to 100. Changes while the game runs take effect at once.
+# Nearest (pixelated) is also available: upscaler = nearest. It selects point sampling in the scene's
+# decode-and-scale pass and the final presentation. Other game effects can still filter the picture.
 # upscaler = fsr
 # sharpness = 80
 # Picture shape when the window's shape differs from the game resolution's (a 16:9 picture in a 21:9 fullscreen

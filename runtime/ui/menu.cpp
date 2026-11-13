@@ -912,7 +912,8 @@ static void upscaling_name(char *out, size_t size) {
     static const UiTextId fsr3[] = {UI_MENU_FSR3_NATIVE, UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED, UI_MENU_DLSS_PERFORMANCE, UI_MENU_DLSS_ULTRA};
     // FSR 3.1 set where it cannot load runs nothing (vk_dlaa.c vk_dlaa_fsr3): the game scales the picture as the rest says
     if (!cfg_bool("NX2NAVI_DLAA") || (!strcmp(cfg_value("NX2NAVI_TAA"), "fsr3") && !vk_ffx_available())) {
-        if (strcmp(cfg_value("NX2NAVI_UPSCALER"), "fsr")) snprintf(out, size, "%s", menu_text(UI_MENU_UPSCALER_BILINEAR));
+        if (!strcmp(cfg_value("NX2NAVI_UPSCALER"), "nearest")) snprintf(out, size, "%s", menu_text(UI_MENU_UPSCALER_NEAREST));
+        else if (strcmp(cfg_value("NX2NAVI_UPSCALER"), "fsr")) snprintf(out, size, "%s", menu_text(UI_MENU_UPSCALER_BILINEAR));
         else snprintf(out, size, menu_text(UI_MENU_OV_FMT_FSR), cfg_int("NX2NAVI_SHARPNESS"));
         return;
     }
@@ -952,7 +953,7 @@ static void row_upscaling(void) {
                                          UI_MENU_DLSS_PERFORMANCE, UI_MENU_DLSS_ULTRA};
     // FSR 4 (vk_ffx4.cpp) is the same setting as FSR 3.1 with NX2NAVI_FSR4 on, and takes the same modes: listed where
     // it runs on this device, after FSR 3.1's
-    enum { BILINEAR, FSR1, DLSS, FSR3, FSR4 };
+    enum { BILINEAR, NEAREST, FSR1, DLSS, FSR3, FSR4 };
     struct Entry { int kind, mode; };
     static char text[15][96];
     Entry list[18];
@@ -961,6 +962,7 @@ static void row_upscaling(void) {
     auto add = [&](int kind, int mode) {
         list[n] = {kind, mode};
         if (kind == BILINEAR) names[n] = menu_text(UI_MENU_UPSCALER_BILINEAR);
+        else if (kind == NEAREST) names[n] = menu_text(UI_MENU_UPSCALER_NEAREST);
         else if (kind == FSR1) names[n] = menu_text(UI_MENU_UPSCALER_FSR);
         else {
             char *t = text[(kind == FSR4 ? 10 : kind == FSR3 ? 5 : 0) + mode];
@@ -971,7 +973,8 @@ static void row_upscaling(void) {
         n++;
     };
     // what is set now
-    Entry now = {strcmp(cfg_value("NX2NAVI_UPSCALER"), "fsr") ? BILINEAR : FSR1, 0};
+    const char *spatial = cfg_value("NX2NAVI_UPSCALER");
+    Entry now = {!strcmp(spatial, "nearest") ? NEAREST : !strcmp(spatial, "fsr") ? FSR1 : BILINEAR, 0};
     if (cfg_bool("NX2NAVI_DLAA")) {
         now = {strcmp(cfg_value("NX2NAVI_TAA"), "fsr3") ? DLSS : vk_ffx_fsr4() ? FSR4 : FSR3, 0};   // set where it does
         for (int i = 0; i < 5; i++)                                                                // not run: FSR 3.1 does
@@ -979,6 +982,7 @@ static void row_upscaling(void) {
     }
     const bool dlss = dlss_offered(), fsr = vk_ffx_available(), fsr4 = fsr && vk_ffx4_available();
     add(BILINEAR, 0);
+    add(NEAREST, 0);
     add(FSR1, 0);
     for (int i = 0; dlss && i < 5; i++) add(DLSS, i);
     for (int i = 0; fsr && i < 5; i++) add(FSR3, i);
@@ -997,7 +1001,7 @@ static void row_upscaling(void) {
                               note);
     if (nv < 0 || nv >= n) return;
     const Entry e = list[nv];
-    opt_apply("NX2NAVI_UPSCALER", e.kind == FSR1 ? "fsr" : "bilinear");
+    opt_apply("NX2NAVI_UPSCALER", e.kind == FSR1 ? "fsr" : e.kind == NEAREST ? "nearest" : "bilinear");
     opt_apply("NX2NAVI_DLAA", e.kind >= DLSS ? "1" : "0");
     if (e.kind < DLSS) opt_apply("NX2NAVI_FRAMEGEN", "off");   // it needs DLSS's or FSR 3.1's motion vectors (row_framegen)
     if (e.kind >= DLSS) opt_apply("NX2NAVI_DLSS", modes[e.mode]);
@@ -1211,16 +1215,16 @@ static void row_framegen(void) {
     else if (cur == 2 && upscaled && dlss) row_framegen_mult(restart);
 }
 
-// One Resolution row for the picture's height (NX2NAVI_GAME_RES, widescreen.c picture_height: 1080, the game's 1440 or
+// One Resolution row for the picture's height (NX2NAVI_GAME_RES, widescreen.c picture_height: 720, 1080, the game's 1440 or
 // more) and the window outside fullscreen (NX2NAVI_WINDOW_SIZE): each height is shown as the size of the game's shape at
 // it (16:9 2560 x 1440, 21:9 3440 x 1440, 32:9 5120 x 1440, the window's own shape where the picture follows the window),
 // and choosing one sets both. The window takes it at once (gfx_present.c applies a changed size at the next present),
 // within the monitor, and the picture after a restart. Native draws at the window's size and leaves the window as it is.
 // As two rows of their own, a window of one size took a picture of another and scaled it for nothing.
 static void row_resolution(void) {
-    static const int heights[] = {1080, 1440, 1800, 2160, 2880};
-    static const int wide169[] = {1920, 2560, 3200, 3840, 5120}, wide219[] = {2560, 3440, 4300, 5120, 6880},
-                     wide329[] = {3840, 5120, 6400, 7680, 10240};
+    static const int heights[] = {720, 1080, 1440, 1800, 2160, 2880};
+    static const int wide169[] = {1280, 1920, 2560, 3200, 3840, 5120}, wide219[] = {1704, 2560, 3440, 4300, 5120, 6880},
+                     wide329[] = {2560, 3840, 5120, 6400, 7680, 10240};
     enum { N = sizeof heights / sizeof *heights };
     const char *aspect = cfg_value("NX2NAVI_GAME_ASPECT");
     int mw = 0, mh = 0, ww = 0, wh = 0;
@@ -1261,6 +1265,13 @@ static void row_resolution(void) {
     opt_apply("NX2NAVI_WINDOW_SIZE", sizes[nv]);
 }
 
+static void row_world_res(void) {
+    static const char *const values[] = {"game", "240", "360", "480", "720"};
+    const char *names[] = {menu_text(UI_MENU_WORLD_RES_GAME), "240p", "360p", "480p", "720p"};
+    if (cfg_bool("NX2NAVI_DLAA")) opt_disable_next(UI_MENU_WORLD_RES_TEMPORAL);
+    opt_choice_list("NX2NAVI_WORLD_RES", UI_MENU_WORLD_RES, values, names, 5, UI_MENU_WORLD_RES_DESC);
+}
+
 static void tab_screen(float scale) {
     opt_begin("##screen", scale);
     opt_toggle("NX2NAVI_FULLSCREEN", UI_MENU_FULLSCREEN, UI_MENU_FULLSCREEN_DESC);
@@ -1283,6 +1294,7 @@ static void tab_screen(float scale) {
     if (wide_available()) opt_choice("NX2NAVI_GAME_ASPECT", UI_MENU_GAME_ASPECT, wide, 4, UI_MENU_GAME_ASPECT_DESC);
     if (wide_available()) row_resolution();
     row_upscaling();
+    if (wide_available()) row_world_res();
     row_aa();
     row_framegen();
     row_hdr();

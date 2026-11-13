@@ -907,7 +907,8 @@ static int put_picture(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat 
             .srcOffsets = {{prect[0], prect[1], 0}, {prect[0] + cw, prect[1] + ch, 1}},
             .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, .dstOffsets = {{to[0], to[1], 0}, {to[0] + to[2], to[1] + to[3], 1}}};
         vkCmdBlitImage(cb, psrc, general ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
+                       !strcmp(cfg_value("NX2NAVI_UPSCALER"), "nearest") ? VK_FILTER_NEAREST : VK_FILTER_LINEAR);
         if (general)   // later submissions that write the source wait for the blit's read
             sync_barrier(cb, psrc, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, 0,
                          VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0);

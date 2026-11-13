@@ -1,0 +1,25 @@
+# Experimental retro presentation. Merge into nx2navi.ini beside the rebuilt game.
+# Restart after changing picture or world resolution. Gameplay validation is still required.
+[display]
+game_res = 720
+world_res = 480
+upscaler = nearest
+dlaa = 0
+aa = off
+framegen = off
+texture_detail = low
+aniso = game
+shadow_scale = 1
+contact_shadows = 0
+pcss = 0
+
+[performance]
+astc_bc = 1
+low_end_gpu = 0
+
+[frame rate]
+fps_limit = 30
+
+# 360p to 720p is 2x and 240p to 720p is 3x; 480p to 720p has uneven pixel sizes.
+# Low resolution does not replace missing GPU features or reduce the game's whole memory footprint.
+# Test low_end_gpu separately: it enables several experimental behaviors together.

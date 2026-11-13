@@ -427,12 +427,13 @@ game folder is the default `<launcher>\game`. The dump is never touched.
 ## Releases
 
 1. Bump `VERSION`; build the shader translator (`tools/build_xlate.py`).
-2. With Python 3.14, numpy (the icon is drawn with it, `launcher/ui/art.py`) and uv, on Windows (the prebuilt runtime
+2. With Python 3.14, numpy (the icon is drawn with it, `launcher/ui/art.py`), truststore (Windows certificate
+   validation) and uv, on Windows (the prebuilt runtime
    needs MSYS2's own clang; on Linux add `--wine` to run it through Wine, else the release ships without it and
    players compile `runtime/` themselves):
 
    ```powershell
-   uv run --no-project --python 3.14 --with numpy tools\make_launcher.py --xlate build\xlate --ffx amd_fidelityfx_vk.dll --feed owner/name --notes notes.md
+   uv run --no-project --python 3.14 --with numpy --with truststore tools\make_launcher.py --xlate build\xlate --ffx amd_fidelityfx_vk.dll --feed owner/name --notes notes.md
    ```
 
    `--ffx` puts AMD's signed `amd_fidelityfx_vk.dll` (FidelityFX SDK 1.1.4) in the release for FSR 3.1.

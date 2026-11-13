@@ -11,7 +11,7 @@
 
 // The game's upscaler (tensor-core, untranslatable) reads the post pass's picture, whose channels hold the square root of
 // their linear value packed as RGB9E5 (prog 102), and writes the linear picture the HUD is drawn over; the frame's last
-// pass encodes to sRGB. This pass (shaders/fallback_tonemap.spvasm) scales with linear filtering in the stored values
+// pass encodes to sRGB. This pass (shaders/fallback_tonemap.spvasm) scales with linear or nearest filtering in the stored values
 // and squares them into an RGBA16F image of the target's size, which the caller blits in 1:1. The game composites
 // and tonemaps before the post pass, so nothing here changes exposure. (It was a tonemap once, when the input was
 // taken for the raw HDR scene; the blit's sRGB decode that stood in since darkened mid-tones and lifted the darkest
@@ -22,7 +22,7 @@ static struct {
     VkDescriptorSetLayout dsl;
     VkPipelineLayout layout;
     VkPipeline pipe;
-    VkSampler sampler;
+    VkSampler sampler, nearest;
     struct { VkImage img; VkFormat f; VkImageView view; } views[16];
     int nviews;
     VkImage out;                   // the pass's own output (RGBA16F, the target's size); the caller blits it in
@@ -84,10 +84,14 @@ static int tm_init(void) {
                                    .codeSize = sizeof fallback_tonemap_spv, .pCode = fallback_tonemap_spv};
     VkShaderModule m = VK_NULL_HANDLE;
     int ok = TM.push && vkCreateDescriptorSetLayout(c->device, &dci, NULL, &TM.dsl) == VK_SUCCESS;
+    // Keep both samplers so changing the scaling choice never destroys a sampler used by an in-flight frame.
+    VkSamplerCreateInfo point = si;
+    point.magFilter = point.minFilter = VK_FILTER_NEAREST;
     VkPipelineLayoutCreateInfo li = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .setLayoutCount = 1,
                                      .pSetLayouts = &TM.dsl, .pushConstantRangeCount = 1, .pPushConstantRanges = &pr};
     ok = ok && vkCreatePipelineLayout(c->device, &li, NULL, &TM.layout) == VK_SUCCESS &&
          vkCreateSampler(c->device, &si, NULL, &TM.sampler) == VK_SUCCESS &&
+         vkCreateSampler(c->device, &point, NULL, &TM.nearest) == VK_SUCCESS &&
          vkCreateShaderModule(c->device, &mi, NULL, &m) == VK_SUCCESS;
     if (ok) {
         VkComputePipelineCreateInfo ci = {.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
@@ -128,7 +132,8 @@ VkImage vk_tonemap_record(VkCommandBuffer cb, VkImage src, VkFormat sf, uint32_t
     VkDependencyInfo dep = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .memoryBarrierCount = 1, .pMemoryBarriers = &mb};
     vkCmdPipelineBarrier2(cb, &dep);
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, TM.pipe);
-    VkDescriptorImageInfo ii[2] = {{TM.sampler, sv, VK_IMAGE_LAYOUT_GENERAL}, {VK_NULL_HANDLE, dv, VK_IMAGE_LAYOUT_GENERAL}};
+    VkSampler sampler = !strcmp(cfg_value("NX2NAVI_UPSCALER"), "nearest") ? TM.nearest : TM.sampler;
+    VkDescriptorImageInfo ii[2] = {{sampler, sv, VK_IMAGE_LAYOUT_GENERAL}, {VK_NULL_HANDLE, dv, VK_IMAGE_LAYOUT_GENERAL}};
     VkWriteDescriptorSet w[2] = {
         {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstBinding = 0, .descriptorCount = 1,
          .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &ii[0]},

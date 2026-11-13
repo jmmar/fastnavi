@@ -76,7 +76,7 @@ static const char *const known[] = {
     "VK_PRESENT", "VK_RECONVERGE", "VK_NAN_BITS", "VK_RECORDER", "VK_SSBO_ALIGN", "VK_SUBGROUP", "VK_SUBGROUP_PIN", "VK_VALIDATION", "VOLUME", "VRAM_HEADROOM", "VS_OUTS", "WATER_PROJECTIVE",
     "WAIT_WATCH_S", "WALK_KEY", "WALK_SCALE", "WB_EXACT", "WB_FENCE_LIMIT", "WB_MERGE", "WB_NO_REUP", "WB_MERGE_MAX", "WB_PROBE", "WB_SPLIT", "WB_LAZY", "WB_LAZY_CHUNK", "WB_LAZY_TOUCH", "WINDOW_SIZE", "XLATE", "XLATE_ID", "XLATE_KEEP", "XLATE_PROCS",
     "UPLOAD_BATCH_MB", "VRAM_HEAP_LIMIT", "VRAM_RESERVE_MB", "TEX_CLOBBER", "LOW_END_GPU",
-    "ZSTD_CHECK", "ZSTD_NATIVE",
+    "ZSTD_CHECK", "ZSTD_NATIVE", "WORLD_RES",
     "BIND_REUSE", "DYN_DELTA", "STG_ARENA", "SUBMIT_BATCH", "SUBMIT_THREAD", "ASTC_GPU_DESWIZZLE", "ASTC_SCRATCH_KEEP", "ASTC_ARENA", "ASTC_BC1",
     "TEXUP_LOG_MS", "DYN_RES", "DYN_RES_TARGET", "DYN_RES_STEP", "TEXTURE_DETAIL",
     "RECORDER_CORE", "RECORDER_PRIO", "REPLAY_TIME", "LOCK_TIME", "POOL_CREATE_BUDGET", "POOL_CREATE_MS", "POOL_FINI_IDLE", "POOL_LOAD_BACKLOG", "POOL_LOAD_MS",
@@ -101,7 +101,7 @@ static const struct { const char *key, *section; } sections[] = {
     {"REALTIME", "frame rate"}, {"CLOTH_REALTIME", "frame rate"}, {"HIGHFPS_FIX", "frame rate"},
     {"PHYSICS_STEPS", "frame rate"}, {"PICKUP_COUNT", "frame rate"}, {"STEP_STEADY", "frame rate"},
     {"FULLSCREEN", "display"}, {"WINDOW_SIZE", "display"}, {"PERF_OVERLAY", "display"}, {"VK_PRESENT", "display"},
-    {"GPU_INDEX", "display"}, {"MONITOR", "display"}, {"OUTPUT_RES", "display"}, {"GAME_ASPECT", "display"}, {"GAME_RES", "display"}, {"RENDER_SCALE", "display"}, {"UPSCALER", "display"},
+    {"GPU_INDEX", "display"}, {"MONITOR", "display"}, {"OUTPUT_RES", "display"}, {"GAME_ASPECT", "display"}, {"GAME_RES", "display"}, {"WORLD_RES", "display"}, {"RENDER_SCALE", "display"}, {"UPSCALER", "display"},
     {"SHARPNESS", "display"}, {"ASPECT", "display"}, {"FOV", "display"}, {"ANISO", "display"},
     {"TEXTURE_DETAIL", "display"},
     {"COLOR_PRESET", "display"},
@@ -179,7 +179,7 @@ static const CfgMeta metas[] = {
     {"MONITOR", "auto", NULL, RESTART},   // auto|primary|<1-based index>|<part of a monitor name> (gfx_window_win.c, gfx_window_sdl.c chosen_monitor)
     {"PERF_OVERLAY", "off", "off|fps|full", LIVE},
     {"OUTPUT_RES", "1920x1080", NULL, RESTART}, {"RENDER_SCALE", "game", "game|50|67|75|100|125|150|200", RESTART},
-    {"UPSCALER", "fsr", "fsr|bilinear", LIVE}, {"SHARPNESS", "80", "0..100", LIVE},
+    {"UPSCALER", "fsr", "fsr|bilinear|nearest", LIVE}, {"SHARPNESS", "80", "0..100", LIVE},
     {"DLAA", "0", "0|1", LIVE}, {"DLSS", "dlaa", "dlaa|quality|balanced|performance|ultra_performance", LIVE},
     {"DLSS_PRESET", "default", "default|k|j", LIVE}, {"DLSS_IDLE_FREE", "1", "0|1|2", RESTART}, {"TAA", "dlss", "dlss|fsr3", LIVE},   // vk_dlaa.c fsr3
     {"FSR4", "0", "0|1", LIVE},   // vk_ffx.cpp vk_ffx_fsr4
@@ -191,7 +191,8 @@ static const CfgMeta metas[] = {
     {"DLSS_CHAR_MASK", "65", "0|35|65|100", LIVE}, {"FXAA", "1", "0|1", LIVE},
     {"AA", "game", "game|off|fxaa|smaa|taa", LIVE},   // vk_aa.c: what runs in place of the game's SMAA
     {"GAME_ASPECT", "16:9", "16:9|window|21:9|32:9", RESTART},   // widescreen.c
-    {"GAME_RES", "1440", "1080|1440|1800|2160|2880|window", RESTART},   // widescreen.c: the picture's height
+    {"GAME_RES", "1440", "720|1080|1440|1800|2160|2880|window", RESTART},   // widescreen.c: the picture's height
+    {"WORLD_RES", "game", "game|240|360|480|720", RESTART},   // widescreen.c: scene height before the HUD, temporal scaling takes precedence
     {"ASPECT", "fit", "fit|stretch", LIVE}, {"FOV", "100", "70..140", LIVE},
     {"ANISO", "16", "game|2|4|8|16", LIVE},   // vk_texture.c sampler_features, vk_sampler_aniso_live; 16: the game asks 1x or 2x
     {"TEXTURE_DETAIL", "auto", "auto|full|reduced|low", RESTART},   // vk_texture.c "texture detail", read at the first texture

@@ -1,0 +1,29 @@
+# Baseline for the RX 6900 XT. Merge into nx2navi.ini beside the built game.
+# Keep saves, controls and other preferences. These are starting values, not measured optimal settings.
+[display]
+game_res = 1440
+world_res = game
+upscaler = fsr
+dlaa = 0
+aa = game
+framegen = off
+texture_detail = auto
+aniso = 16
+shadow_scale = 1
+contact_shadows = 0
+pcss = 0
+
+[performance]
+low_end_gpu = 0
+replay_workers = 0
+replay_pipe = 0
+replay_async = 0
+tail_early = 0
+
+[frame rate]
+fps_limit = 60
+
+# Next experiment: FSR 3.1 Quality. Under [display] set dlaa = 1, taa = fsr3,
+# dlss = quality, fsr4 = 0, upscaler = bilinear. Requires amd_fidelityfx_vk.dll.
+# Measure real frame times before enabling framegen = fsr3.
+# Leave gpl and wb_lazy unset so the renderer chooses its AMD driver defaults.
