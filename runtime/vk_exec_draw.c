@@ -29,6 +29,7 @@
 #define NX2NAVI_TONEMAP_STANDIN 1   // vk_tonemap.c, see untranslated_dispatch_fallback
 #endif
 #include "vk_exec.h"
+#include "vk_wait_budget.h"
 #include "vk_gpa.h"
 #include "mesh_fb.h"
 #include "vk_mesh_fb.h"
@@ -4510,6 +4511,9 @@ static int prepare_draw_ex(VkExec *ex, int prim, int32_t count, int restart, int
             if (linking) t0 = kern_now_ns();
             else w0 = t0 ? t0 : wait_ms ? kern_now_ns() : 0;
             vk_exec_ahead(ex);
+            // The pool's allowance was read before the lookup and look-ahead. Spend only what remains rather than
+            // adding that work to the original wait. Unpooled legacy one-shot waits keep their existing behavior.
+            if (wait_ms && t0 && budget) wait_ms = vk_wait_remaining_ms(wait_ms, kern_now_ns() - t0);
             // The fast link's wait is one for each pipeline, counted from its first miss (link_budget): what that left
             // unbuilt is a compile, and its later draws, in this frame and the next ones, wait for nothing.
             double building = wait_ms && linking ? vk_pipeline_building_ms(&s) : 0;

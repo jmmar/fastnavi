@@ -93,7 +93,7 @@ From PowerShell in the repository:
 The helper finds MSYS2 or Vulkan SDK shader tools, rebuilds the translator, validates
 runtime shaders, packages FSR 3.1 and uses `truststore` for Windows certificate
 validation. It writes `build/launcher-release-updated`, separate from earlier packages.
-Packages carry the local version suffix `-fastnavi.1` to distinguish them from the upstream release.
+Packages carry a local `-fastnavi` version suffix to distinguish them from the upstream release.
 It does not publish or install anything and does not change an installed game's files.
 Run the resulting setup yourself when ready to install. The launcher uses the fork's
 release feed (`jmmar/fastnavi`), so upstream updates do not replace the custom runtime.

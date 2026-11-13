@@ -63,6 +63,29 @@ game-derived material; they remain in ignored build folders and must not be comm
 No captures are uploaded by these tools, and the helper does not copy full environment
 variables, settings files, tokens or keys.
 
+## First wait-budget correction
+
+Version 0.9.2-fastnavi.2 subtracts pipeline lookup and submission look-ahead time from
+the subsequent explicit graphics-pipeline wait. Previously the allowance was read
+before that work, and the same full wait could be requested afterward. For example,
+20 ms of lookup/look-ahead with a 50 ms allowance now leaves at most 30 ms of explicit
+waiting, rather than another 50 ms. Exhaustion leaves no further explicit wait.
+
+This preserves background compilation, frame holding, one-shot handling, the final
+full-screen fallback allowance and AMD's GPL safeguard. It does not remove the intended
+50 ms shared pool plus 40 ms fallback, bound mutex/driver calls, eliminate cold
+compilation, or fix a burst of thousands of texture uploads. A follow-up capture is
+needed to measure its effect and verify visual behavior. No speedup is claimed yet.
+
+For memory pressure, try Screen > Texture detail > Reduced (or Low) and restart.
+The retro controls principally change rendering resolution, not the game's memory floor.
+Keep automatic texture compression; low-end GPU mode changes several experimental
+behaviors at once and is not the first memory experiment on an RX 6900 XT.
+The startup warning concerns available system commit capacity and uses an estimate,
+not a measurement of paging during a hitch. Closing memory-heavy applications and
+checking Windows' page-file configuration address that capacity; no OS settings are
+changed by the tools. Turning off the warning does not free memory.
+
 ## Contextual hold-B running
 
 The current controls describe Switch B as put-away/cancel/back and held Switch A as

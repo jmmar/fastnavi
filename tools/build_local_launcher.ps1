@@ -33,7 +33,7 @@ try {
     }
     & uv run --no-project --python 3.14 tools\build_shaders.py
     if ($LASTEXITCODE -ne 0) { throw 'Runtime shader build failed.' }
-    $localVersion = (Get-Content VERSION -Raw).Trim() + '-fastnavi.1'
+    $localVersion = (Get-Content VERSION -Raw).Trim() + '-fastnavi.2'
     & uv run --no-project --python 3.14 --with numpy --with truststore tools\make_launcher.py `
         --xlate build\xlate --ffx $FfxPath --no-dlss --feed jmmar/fastnavi --version $localVersion `
         --out build\launcher-release-updated
