@@ -34,13 +34,14 @@ def main():
     settings = {'NX2NAVI_FLIGHT': '1', 'NX2NAVI_FLIGHT_FRAMES': '120' if args.visuals else '600',
                 'NX2NAVI_FLIGHT_THUMBS': '1' if args.visuals else '0', 'NX2NAVI_FLIGHT_SPIKE_MS': '40',
                 'NX2NAVI_FLIGHT_EVERY': '0', 'NX2NAVI_FLIGHT_AT': '', 'NX2NAVI_FLIGHT_DIR': str(output),
-                'NX2NAVI_TRACE': 'perf' if args.detail else '', 'NX2NAVI_PROFILE': ''}
+                'NX2NAVI_TRACE': 'perf' if args.detail else '', 'NX2NAVI_PROFILE': '',
+                'NX2NAVI_CAPTURE_DIR': str(output / 'bug-captures')}
     env.update(settings)
     # Only diagnostic settings are recorded: never copy the full environment or settings file.
     (output / 'capture.json').write_text(json.dumps({'started': datetime.now().isoformat(),
         'game': str(exe), 'diagnostics': settings}, indent=2), encoding='utf-8')
     print(f'Capture folder: {output}', flush=True)
-    print('Play for 1-2 minutes. Repeat water/pot/route encounters. F8 marks an event; wait a few seconds before exiting.', flush=True)
+    print('Play for 1-2 minutes. F8 makes a bug capture with picture/settings/save and flight timing; wait a few seconds before exiting.', flush=True)
     print('Automatic captures are limited to one every 10 seconds. Instrumentation and dumping have some overhead.', flush=True)
     # Running directly preserves the installed game and uses its existing configuration/cache/save paths.
     code = subprocess.call([str(exe)], cwd=exe.parent, env=env)

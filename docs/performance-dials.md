@@ -2,8 +2,9 @@
 
 ## Foundation and retained work
 
-This update starts from upstream commit `d4778b1bb0b8ef929a9b23c387a22f5cef5b4101`
-(version 0.9.2), checked on November 13, 2026. It retains the current renderer,
+The latest merge includes upstream commit `5ae55db41c7d11c4e997d2676019939a936e560b`
+(version 0.10.1), checked on November 13, 2026. The initial foundation was 0.9.2.
+It retains the current renderer,
 shader translator, memory management, anti-aliasing, launcher and low-end GPU mode.
 The original fork is preserved locally on `backup/before-upstream-2026-11-13`
 at `ac0719e`. The update branch is `update/upstream-performance-dials`.
@@ -66,6 +67,9 @@ retain controls, save paths and other preferences. It starts at 1440p, 60 fps,
 automatic texture detail, normal scene scaling, and no frame generation or
 experimental concurrency. Leave driver-sensitive settings unset so upstream selects them.
 It is a reproducible starting point, not a claim of optimal performance.
+The supplied baseline explicitly disables experimental concurrency for comparison.
+Upstream 0.10.1 itself now defaults CPU helper threads to Automatic and Start next
+frame early to On; a baseline file with explicit zeros overrides those defaults.
 
 Next, try FSR 3.1 Quality through the Screen menu. Its ini equivalent under `[display]`
 is `dlaa = 1`, `taa = fsr3`, `dlss = quality`, `fsr4 = 0`, `upscaler = bilinear`.

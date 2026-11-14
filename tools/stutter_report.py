@@ -14,6 +14,10 @@ def load(root):
     paths = [root] if root.is_file() else sorted(root.rglob('frames.tsv'))
     frames = {}
     for path in paths:
+        # F8 writes a small timing table beside the detailed flight table; do not summarize both.
+        if (path.parent / 'flight' / 'frames.tsv').is_file():
+            continue
+        session = next((parent for parent in path.parents if (parent / 'capture.json').is_file()), path.parent.parent)
         with path.open(encoding='utf-8-sig') as stream:
             for row in csv.DictReader((line for line in stream if not line.startswith('#')), delimiter='\t'):
                 try:
@@ -26,8 +30,9 @@ def load(root):
                 except (ValueError, KeyError) as error:
                     raise ValueError(f'{path}: invalid frame row: {error}') from error
                 # Sibling dumps overlap; separate capture sessions restart frame numbers.
-                identity = (path.parent.parent, key)
-                frames[identity] = (path.parent.name, values)
+                identity = (session, key)
+                source = path.parent.parent.name if path.parent.name == 'flight' else path.parent.name
+                frames[identity] = (source, values)
     return list(frames.values())
 
 

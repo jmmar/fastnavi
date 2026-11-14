@@ -37,6 +37,13 @@ after the game exits. To summarize again:
 python tools\stutter_report.py build\diagnostics\<session>
 ```
 
+On 0.10.1, F8 uses the built-in bug capture: it saves a screenshot, redacted settings,
+the log's end and a save snapshot, with a detailed flight table when the recorder is on.
+The helper routes those into this session's `bug-captures` directory, and the summary
+deduplicates their overlapping frames with automatic captures. This extra F8 data is
+distinct from the thumbnail ring, which remains off unless `--visuals` is selected.
+Nothing is uploaded. See `bug-capture.md` for the full built-in capture contents.
+
 The initial tier has 600 timing records and texture events, no thumbnails, no CPU
 sampling and no verbose performance trace. It uses existing runtime instrumentation;
 there are no new per-frame timers. Counters and the recorder still add overhead, and
@@ -60,8 +67,8 @@ thread utilization. ASTC decode time is nested in texture time and is not added 
 Keep captures from different settings in separate sessions. A more expensive tier is
 for diagnosis, not a performance benchmark. Flight files and screenshots can contain
 game-derived material; they remain in ignored build folders and must not be committed.
-No captures are uploaded by these tools, and the helper does not copy full environment
-variables, settings files, tokens or keys.
+No captures are uploaded by these tools. The helper records only its diagnostic
+environment settings; the built-in F8 capture writes its own redacted settings snapshot.
 
 ## First wait-budget correction
 

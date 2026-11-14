@@ -40,6 +40,16 @@ class CaptureChecks(unittest.TestCase):
     def test_unknown_cause_stays_unknown(self):
         self.assertIn('no recorded work identifies', stutter_report.evidence({'interval_ms': 200}))
 
+    def test_bug_capture_and_automatic_windows_share_session(self):
+        (self.root / 'capture.json').write_text('{}', encoding='utf-8')
+        self.frames(self.root / 'auto', '2\t200\t120\t90\t0\n')
+        bug = self.root / 'bug-captures' / '001'
+        self.frames(bug, '2\t200\t0\t0\t0\n')
+        self.frames(bug / 'flight', '2\t200\t120\t90\t0\n')
+        text = stutter_report.report(self.root)
+        self.assertIn('1 distinct captured frames', text)
+        self.assertIn('texture upload/decode 120.0 ms', text)
+
     def test_empty_and_damaged_input(self):
         with self.assertRaisesRegex(ValueError, 'No completed'):
             stutter_report.report(self.root)
